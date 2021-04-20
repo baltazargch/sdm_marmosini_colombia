@@ -1,0 +1,123 @@
+#Run only the first time
+#install.packages("raster", "dismo", "pbapply", 
+#                 "rgeos", "dplyr", "rgdal", 
+#                 "maptools", "ENMeval" , "here", 
+#                 "adehabitatHR") #only run if frist time or need update pckgs
+
+options(java.parameters = "-Xmx4g" )
+
+library(raster)
+library(dismo)
+library(pbapply)
+library(rgeos)
+library(dplyr)
+library(rgdal)
+library(maptools)
+library(here)
+library(ENMeval)
+library(adehabitatHR)
+
+if (is.null(find.package("rJava"))){
+  print("No se encontró el paquete rJava, necesario estar instalado")
+  stop("Script finalizado antes de lo esperado")
+  } else {
+    print("Se puede continuar, todos los paquetes instalados correctamente")
+  }
+
+DATA_WD   <- here("records") #Donde están los registros
+ENV_WD <- here("envRasters") #Donde están las covariables
+
+data('wrld_simpl') #Para corroborar y mapear
+
+#Cargar datos de variables predictoras
+files      <- list.files(ENV_WD, pattern = "*grd$", full.names = T) #Cargar rasters
+predictors <- raster::stack(files) #Agrupar raster en un elemento tipo lista
+names(predictors) 
+
+#Cargar registros
+filesR  <- list.files(DATA_WD, pattern = ".csv$", full.names = T) #leer directorio
+OCCS    <- lapply(filesR, read.csv) #leer .csv en objeto tipo lista
+
+NombresOCCS <- list.files(DATA_WD, pattern = ".csv$", full.names = F) #para nombrar elementos de la lista
+names(OCCS) <- gsub("\\.csv$", "", NombresOCCS) #eliminar nombre de la extensión en el nombre y asignar a lista OCCS
+names(OCCS) #corroborar nombres son correctos
+
+
+#extraer XY por área M1
+M1Species  <- pblapply(seq_along(OCCS), function(x){
+  
+  #X es cada uno
+  X = OCCS[[x]]
+  
+  #Sacar coordenadas por cada objeto de la lista
+  coordinates(X) = cbind(X[ ,2], X[ ,3])
+  
+  #proyectar (RGEOS espera UTM, pero igual funciona con grados como unidad en el siguiente paso)
+  proj4string(X) = CRS("+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0")
+  
+  #convexhull de el total de datos para cada especie
+  bgExt = mcp(X, percent = 100)
+  
+  #Crear buffer de 5 grados (330km) para cada especie según su convexhull
+  bgExt = rgeos::gBuffer(bgExt, width = 3)
+  
+  bgMask = crop(predictors[[1]], bgExt)
+  bgMask = mask(bgMask, bgExt)
+  
+  bgXY = raster::sampleRandom(bgMask, 10000, sp =T)
+  
+  bgXY = as.data.frame(bgXY@coords)
+  
+  return(bgXY)
+})
+
+names(M1Species) <- names(OCCS)
+ARGSlist = c("randomseed=TRUE",
+             "replicates=10",
+             "maximumiterations=1000")
+jackknife24 <- ENMevaluate(OCCS[[1]][ ,2:3], predictors[[-10]], bg.coords = M1Species[[1]],
+                           method = "jackknife",
+                           RMvalues = seq(0.5,1),
+                           fc = c("L", "Q"),
+                           algorithm = 'maxent.jar',
+                           overlap = TRUE, 
+                           bin.output = TRUE,
+                           rasterPreds = TRUE, 
+                           parallel = TRUE, 
+                           updateProgress = TRUE, 
+                           progbar = TRUE, 
+                           numCores = 4)
+
+save(jackknife24, file = paste0(here("models", "/jackknife.RData")))
+
+
+for (i in seq_along(OCCS)){
+  
+  TstartTime <- Sys.time()
+  
+  if (as.numeric(nrow(OCCS[[i]])) < 25){
+    
+    print("Corriendo modelos para especies con menos de 24 registros")
+    print(paste("Modelo #", i, "para la especie", names(OCCS[i]), "a las", Sys.time()))
+    
+    startTime <- Sys.time()
+    #<<<<<AQUI MODELO EN BLOQUES>>>>>>#
+    endTime <- Sys.time()
+    
+    
+    startTime <- Sys.time()
+    #<<<<<AQUI MODELO RANDOM K-FOLD = 5>>>>>>#
+    endTime <- Sys.time()
+  } else {
+    
+    print("Corriendo modelos para especies con 25 o más registros")
+    print(paste("Modelo #", i, "para la especie", names(OCCS[i]), Sys.time()))
+    
+    startTime <- Sys.time()
+    #<<<<<AQUI MODELO EN BLOQUES>>>>>>#
+    endTime <- Sys.time()
+    
+    startTime <- Sys.time()
+    #<<<<<AQUI MODELO EN K-1 JACKKNIFE>>>>>>#
+    endTime <- Sys.time()
+    TendTime <- Sys.
