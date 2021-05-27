@@ -6,7 +6,7 @@ make_area_m <- function(sp.occ=NULL, method=c('simple', 'ecoregion'), ecoregion 
   require(sp)
   require(sf)
   require(adehabitatHR)
-  # sp.occ <- read.csv('records/Marmosa_alstoni.csv')
+  
   coordinates(sp.occ) <-  cbind(sp.occ[ ,2], sp.occ[ ,3])
   proj4string(sp.occ) <-  CRS(crs.out)
   
@@ -34,7 +34,6 @@ make_area_m <- function(sp.occ=NULL, method=c('simple', 'ecoregion'), ecoregion 
     area.m <- st_buffer(bg.mcp, buffer.eco * 1e05) %>% 
       st_transform(crs.out)
     
-    # bbox <- st_bbox(area.m)
     ecos.in <- st_intersection(ecoregion, area.m)
     area.m <- subset(ecoregion, ECO_NAME  %in% ecos.in$ECO_NAME) %>% st_union() 
     

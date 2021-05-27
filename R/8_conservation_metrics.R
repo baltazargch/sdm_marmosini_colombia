@@ -61,7 +61,6 @@ if(!file.exists('HFP/pressure_Colombia.tif')){
   
   hfp_p <- terra::project(hfp_p, method='near', 'epsg:4326')
   
-  # plot(hfp_p, col=c('forest green', 'yellow', 'dark red'))
   writeRaster(hfp_p, 'HFP/pressure_Colombia.tif', overwrite=T)
   
 } else {

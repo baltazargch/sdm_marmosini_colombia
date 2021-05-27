@@ -3,13 +3,20 @@ terraRemoveCor <- function(terraStack, cutline=NULL, n.points=100000, plot=F,
   stopifnot(!is.null(cutline), !missing(terraStack), class(terraStack)[1] == "SpatRaster", 
             class(cutline)[1]  %in% c('sf', 'sfc_POLYGON', "sfc_MULTIPOLYGON"))
   
+  #THIS FUNCTION IS INSPIRED AND MODIFY FROM THE FUNCTION removeCollinearity of the 
+  #virtualspecies package. It was modify to accept sf and terra objects to increase 
+  #its calculation speed. 
+  
+  #Leroy B, Meynard CN, Bellard C, Courchamp F (2015). “virtualspecies, an
+  # R package to generate virtual species distributions.” _Ecography_. doi:
+  # 10.1111/ecog.01388 (URL: https://doi.org/10.1111/ecog.01388).
+  
   require(terra)
   require(sf)
   
   if(any(class(cutline)[1]  %in% c('sfc_POLYGON', "sfc_MULTIPOLYGON"))){
     vsf <- data.frame(pol='pol')
     st_geometry(vsf) <- cutline
-    # plot(vsf['geometry'])
   } else {
     vsf <- cutline
   }
@@ -17,42 +24,29 @@ terraRemoveCor <- function(terraStack, cutline=NULL, n.points=100000, plot=F,
   stackMask   <- terra::mask(crop(terraStack, vsf), vect(vsf))
   
   if(n.points=='all') {
-    
     dt <- as.data.frame(na.omit(values(stackMask)))
-    
   } else if(is.numeric(n.points)) {
-    
-    # set.seed(30)
     flag <- which(!is.na(values(stackMask[[1]])))
     if(length(flag) <= n.points) {
-      
-      message(paste('Número de pixeles con datos es menor a n.points.', 
-                    'Se estimará con el máximo posible', 
+      message(paste('Total number of pixels is less than n.points.', 
+                    'Maximum pixel amount will be used:', 
                     'ncell: ', length(flag), collapse = ''))
-      
       dt <- as.data.frame(na.omit(values(stackMask)))
-      
     } else {
-      
       dt <- sample(flag, n.points)
       dt <- stackMask[dt]
       dt <- as.data.frame(na.omit(dt))
-      
       if(NROW(dt) < n.points) {
-        # warning(paste('Los valores obtenidos son menos que el n.points (',n.points, ') : \n', 
-        #             '\t Numero de valores: ', NROW(dt), '.\n', 
-        #             'se intentará completar automaticamente \n', collapse = ''), call. = F)
         plus <- n.points - NROW(dt)
         dt <- sample(flag, n.points + plus)
         dt <- stackMask[dt]
         dt <- as.data.frame(na.omit(dt))
-        
       } else {
         dt <- dt[1:n.points,]
       }
     }
   } else {
-    stop('n.points debe ser numerico')
+    stop('n.points must be numeric type')
   }
   
   cor_dt <- 1 - abs(stats::cor(dt, method = method))
