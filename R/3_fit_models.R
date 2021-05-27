@@ -1,31 +1,48 @@
+#### MODEL FITTING ####
+
+#assign ram for java usage (for MaxEnt)
 options(java.parameters = "-Xmx4g" )
-source('R/2_get_modelCases.R')
+
 library(dismo)
 library(raster)
 library(ENMeval)
 library(dplyr)
 
+#Source previous step to get all data in environment
+source('R/1_prepare_areas_and_cases.R')
+
+#Define general flags for modeling
 algorithm   <- 'maxent.jar' # 'maxnet' 'maxent.jar'
 rasterPreds <- TRUE
 RMlists     <- seq(0.5, 5, 0.5)
+
+#Remove and re-load the predictors layer to reduced problems of memory 
+#representation of the data
 rm(envPredics)
 
+#Load, name, and subset the predictors layers
 envsFiles <- list.files('LayersBank/', pattern = '.grd$', full.names = T)
 namesEnv <- gsub('.grd', '', list.files('LayersBank/', pattern = '.grd$', full.names = F))
 
 names(envsFiles) <- namesEnv
 preds <- c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri', 'msavi')
 
+#A simple progress bar for each species process. It doesn't work when parallel
+#computing is used.
 pb <- txtProgressBar(min = 0, max = length(OCCS), style = 2)
 
 for (i in seq_along(OCCS)){
   
+  #Conditional features based on number of records
   if(NROW(OCCS[[i]]) > 80){
     FClist <- c('L', 'LQ', 'LQP', 'H', 'LQH', 'LQHP', 'LQHPT')
   } else {
     FClist <- c('L', 'LQ', 'LQP')
   }
   
+  #This is a resource- and time-consuming computation (relative to the computer)
+  #power available. This tries to reduced this by not calculating species already
+  #assess. This way, the process can be divided in different sessions. 
   all.files <- list.files('output/models/', recursive = T, pattern = '.csv$')
   all.files <- all.files[ !str_detect(all.files, 'final_models|final_subopt_models') ]
   sp.files <- all.files[str_detect(all.files, names(OCCS[i]))]
@@ -33,16 +50,17 @@ for (i in seq_along(OCCS)){
     cat('All models for', names(OCCS[i]), 'are saved. Skipping species \n')
     next
   }
+  
   cat(paste0("Runing model for ", names(OCCS[i]), " at:  ", Sys.time(), '\n'))
   
-  # predictors mask and crop --------------------------------------------------------------------------------------------------
+  # predictors mask and crop -------------------------------------------------
   m1mask <- data.frame(pol='pol')
   st_geometry(m1mask) <- M1bgmask[[i]]
   m2mask <- data.frame(pol='pol')
   st_geometry(m2mask) <- M2bgmask[[i]]
   
   area <- as.numeric(sum(st_area(m2mask))) * 1e-06
-  # print(area)
+  
   nCores <- ifelse(area < 5e05, 6,
                    ifelse(between(area, 5e05, 1e06), 5,  
                           ifelse(between(area, 1e06 + 1, 5e06), 4, 
@@ -52,7 +70,7 @@ for (i in seq_along(OCCS)){
   
   spM1 <- raster::mask(raster::crop(stack(rast(envsFiles[preds])), m1mask), m1mask)
   spM2 <- raster::mask(raster::crop(stack(rast(envsFiles[preds])), m2mask), m2mask)
-  # plot(spM2$bio_2)
+  
   for(j in seq_along(cases)){
     cat('Analysing model:   ', names(cases[j]), '\n')
     if(j != 4){
@@ -69,7 +87,7 @@ for (i in seq_along(OCCS)){
     }
     saveDir <- paste0('output/models/', names(cases[j]), '/fitting/', names(OCCS[i]))
     
-    # block for all -------------------------------------------------------------------------------------------------------------
+    # block for all ----------------------------------------------------------
     if(!file.exists(paste0(saveDir, "/M1block_results.csv"))){
       dt_results <- lapply(RMlists, function(k) {
         ENMevaluate(OCCS[[i]][,2:3], m1Predics, bg.coords = M1bgxy[[i]], 
@@ -108,11 +126,11 @@ for (i in seq_along(OCCS)){
       cat(paste0(saveDir, "/M2block_results.csv already exists. Skipping to next model\n"))
     }
     
-    # conditional of n records --------------------------------------------------------------------------------------------------
+    # conditional of n records -----------------------------------------------
     if (NROW(OCCS[[i]]) < 25){
       cat(names(OCCS[i]), 'has less than 25 records. Aplying models accordingly \n')
       
-      # jackks --------------------------------------------------------------------------------------------------------------------
+      # jackknife ------------------------------------------------------------
       if(!file.exists(paste0(saveDir, "/M1jackk_results.csv"))){
         dt_results <- lapply(RMlists, function(k) {
           ENMevaluate(OCCS[[i]][,2:3], m1Predics, bg.coords = M1bgxy[[i]], 
@@ -152,7 +170,7 @@ for (i in seq_along(OCCS)){
       }
       
     } else {
-      # randoms -------------------------------------------------------------------------------------------------------------------
+      # randoms --------------------------------------------------------------
       cat(names(OCCS[i]), 'has more than 25 records. Aplying models accordingly \n')
       
       if(!file.exists(paste0(saveDir, "/M1random_results.csv"))){

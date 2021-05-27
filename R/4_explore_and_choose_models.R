@@ -1,6 +1,9 @@
+#### MODEL FILTERING, EVALUATION AND CHOOSNG ####
 library(tidyverse)
-source('R/3_fitmodels.R')
+source('R/3_fit_models.R')
 
+#Access each species model directory and results and make one table. 
+#If new species were added, this script add them automatically to the table.
 if(!file.exists('output/models/marmosini_fitting_results.csv')){
   
   fit_table <- data.frame()
@@ -34,7 +37,7 @@ if(!file.exists('output/models/marmosini_fitting_results.csv')){
   write_csv(fit_table, 'output/models/marmosini_fitting_results.csv')
 } else if(file.exists('output/models/marmosini_fitting_results.csv')){
   fit_table <- read.csv('output/models/marmosini_fitting_results.csv')
-  # chunk added for new species: M. germana and jansae ----------------------
+  # chunk added for new species
   if(any(!names(OCCS)  %in% unique(fit_table$species))){
     new_spp <-names(OCCS)[ !names(OCCS)  %in% unique(fit_table$species) ]
     
@@ -77,23 +80,17 @@ if(!file.exists('output/models/marmosini_fitting_results.csv')){
   }
 }
 
-less80 <- c('L', 'LQ', 'LQP')
-more80 <- c('L', 'LQ', 'LQP', 'H', 'LQH', 'LQHP', 'LQHPT')
-
-fit_table %>% 
+#Clean the data: here we exlucded jackknife cross-validation
+#since the prediction from this models were considered by the authors as 
+#inadequate. 
+filtered_table <- fit_table %>% 
   na.omit() %>% 
   mutate(method = str_c(area, '_', cross.validation, '_', case)) %>% 
-  mutate(features = factor(features, levels = more80)) %>% 
-  mutate(
-    type = case_when(
-      species == 'Marmosa_robinsoni' & features  %in% more80 ~ "in",
-      species != 'Marmosa_robinsoni' & features  %in% less80 ~ "in",
-      species == 'Marmosa_robinsoni' & !features  %in% more80 ~ "out",
-      species != 'Marmosa_robinsoni' & !features  %in% less80 ~ "out"
-    )
-  ) %>% 
-  filter(type == 'in') %>% 
-  filter(cross.validation != 'jackk')-> filtered_table #importante para manuscrito
+  mutate(features = factor(features, 
+                           levels = c('L', 'LQ', 'LQP', 'H', 'LQH', 'LQHP', 'LQHPT')
+                           )
+         ) %>% 
+  filter(cross.validation != 'jackk') 
 
 if(!file.exists('output/models/marmosini_fitting_results_filtered.csv')){ 
   write_csv(filtered_table, 'output/models/marmosini_fitting_results_filtered.csv')
@@ -105,94 +102,13 @@ if(!file.exists('output/models/marmosini_fitting_results_filtered.csv')){
   }
 }
 
-source('R/4-1_make_supp_mat_plots.R')
+#### OPTIMAL MODELS PER SPECIES ####
 
-filtered_table %>% 
-  group_by(cross.validation) %>% 
-  mutate(trainAUC = mean(train.AUC)) %>% 
-  mutate(testAUC = mean(avg.test.AUC)) %>% 
-  mutate(Akaike = mean(AICc)) %>% 
-  mutate(Omission = mean(avg.test.orMTP)) %>% 
-  ggplot(aes(x=cross.validation, y = AICc, fill=case)) + 
-  geom_boxplot() 
-
-df.grp <- filtered_table %>% 
-  group_by(species, area, case) %>% 
-  filter(avg.test.AUC >= quantile(avg.test.AUC)[4]) %>% 
-  filter(avg.diff.AUC == min(avg.diff.AUC)) %>% 
-  filter(avg.test.orMTP == min(avg.test.orMTP)) %>% 
-  filter(AICc == min(AICc)) %>% 
-  arrange(species, area, case, cross.validation) %>% 
-  ungroup()
-
-df.grp <- df.grp %>% 
-  mutate(method = str_c(area, cross.validation)) %>% 
-  mutate(Species = str_replace(species, 'Marmosa_|Monodelphis_', 'M. '))
-
-df.grp %>% 
-  ggplot(aes(x=Species, y = avg.diff.AUC, fill=case, 
-             alpha=avg.test.AUC)) +
-  scale_alpha(range = c(0.2,0.9)) +
-  geom_bar(stat = 'identity', position = 'dodge', colour='gray60', lwd=0.2,  width = 0.7) + 
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
-  theme_light() +
-  labs(title = 'Average difference AUC')+
-  theme(
-    panel.grid = element_blank(),
-    axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 60, hjust = 1, face = 'italic'), 
-    strip.text = element_text(size = 6),
-  )
-
-df.grp %>% 
-  ggplot(aes(x=Species, y = avg.test.orMTP, fill=case, 
-             alpha=avg.test.AUC)) +
-  scale_alpha(range = c(0.2,0.9)) +
-  geom_bar(stat = 'identity', position = 'dodge', colour='gray60', lwd=0.2,  width = 0.7) + 
-  facet_wrap(~ area, ncol=2, strip.position = 'top', scales = 'fixed') +
-  theme_light() +
-  labs(title = 'Average test ommision rate at MTP')+
-  theme(
-    panel.grid = element_blank(),
-    axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 60, hjust = 1, face = 'italic'), 
-    strip.text = element_text(size = 6),
-  )
-
-df.grp %>% 
-  ggplot(aes(x=Species, y = train.AUC, fill=case, 
-             alpha=avg.test.AUC)) +
-  scale_alpha(range = c(0.2,0.9)) +
-  geom_bar(stat = 'identity', position = 'dodge', colour='gray60', lwd=0.2, width = 0.7) + 
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
-  theme_light() +
-  labs(title = 'Training AUC')+
-  theme(
-    panel.grid = element_blank(),
-    axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 60, hjust = 1, face = 'italic'), 
-    strip.text = element_text(size = 6),
-  )
-
-df.grp %>% 
-  ggplot(aes(x=Species, y = AICc, fill=case, 
-             alpha=avg.test.AUC)) +
-  scale_alpha(range = c(0.4,0.9)) +
-  geom_bar(stat = 'identity', position = 'dodge', colour='gray60', lwd=0.2, 
-           width = 0.7) + 
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
-  theme_light() +
-  labs(title = 'Akaike Information Criteria')+
-  theme(
-    panel.grid = element_blank(),
-    axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 60, hjust = 1, face = 'italic'), 
-    strip.text = element_text(size = 6),
-  )
-
+#We used primarily the avg.test.AUC to filter the results. See details in the
+#manuscript associated with this script (pending to be published).
 df.final <- filtered_table %>% 
   group_by(species, area) %>% 
-  filter(avg.test.AUC == max(avg.test.AUC)) %>% 
+  filter(avg.test.AUC >= quantile(avg.test.AUC)[4]) %>% #main criterium
   filter(avg.diff.AUC == min(avg.diff.AUC)) %>% 
   filter(avg.test.orMTP == min(avg.test.orMTP)) %>% 
   filter(AICc == min(AICc)) %>% 
@@ -200,6 +116,79 @@ df.final <- filtered_table %>%
   filter(train.AUC == max(train.AUC)) %>% 
   filter(parameters == min(parameters)) %>% 
   filter(avg.test.or10pct == min(avg.test.or10pct)) 
+
+df.final <- split(df.final, df.final$species)
+
+#For the rare cases where more than one model for each area were chose, 
+#assign one at random.
+dff <- lapply(df.final, function(x) {
+  if(length(x$case) > 2){
+    
+    xm1 <- subset(x, area == 'M1')
+    xm2 <- subset(x, area == 'M2')
+    
+    if(NROW(xm1) > 1 & any(xm1$case %in% c('ud.all', 'ud.noplants'))){
+      xm1 <- subset(xm1, case %in% c('ud.all', 'ud.noplants'))
+      if(NROW(xm1) > 1) xm1 <- xm1[sample(1:NROW(xm1), 1),]
+    } else if (NROW(xm1) > 1) {
+      xm1 <- xm1[sample(1:NROW(xm1), 1),]
+    }
+    
+    if(NROW(xm2) > 1 & any(xm2$case %in% c('ud.all', 'ud.noplants'))){
+      xm2 <- subset(xm2, case %in% c('ud.all', 'ud.noplants'))
+      if(NROW(xm2) > 1) xm2 <- xm2[sample(1:NROW(xm2), 1),]
+    } else if (NROW(xm2) > 1) {
+      xm2 <- xm2[sample(1:NROW(xm2), 1),]
+    }
+    
+    xfin <- rbind(xm1, xm2)
+    return(xfin)
+  } else {
+    return(x)
+  }
+})  
+
+#Combine and write results
+dff <- do.call(rbind, dff)
+dir.create('output/models/final_models')
+write_csv(dff, 'output/models/final_models/Choosen_models_marmosini_m1&m2.csv')
+
+#### SUBOPTIMAL MODELS PER SPECIES ####
+optimal <- dff
+
+species <- unique(filtered_table$species)
+
+#For each species chose the second best model
+sp_filtered <- list()
+for (sp in species){
+  df.sp <- filtered_table %>% 
+    group_by(area, case) %>% 
+    filter(species == sp) %>% 
+    filter(avg.test.AUC >= quantile(avg.test.AUC)[4]) %>% 
+    filter(avg.diff.AUC == min(avg.diff.AUC)) %>% 
+    filter(avg.test.orMTP == min(avg.test.orMTP)) %>% 
+    arrange(area, case, cross.validation) %>% 
+    ungroup()
+  
+  opt <- subset(optimal, species == sp & area == 'M1')
+  
+  xm1 <- subset(df.sp, area == 'M1')
+  xm1 <- xm1 %>% filter(settings != opt$settings | case != opt$case)
+  xm1 <- subset(xm1, AICc == xm1$AICc[which(order(xm1$AICc) == 2)])
+  
+  opt <- subset(optimal, species == sp & area == 'M2')
+  
+  xm2 <- subset(df.sp, area == 'M2')
+  xm2 <- xm2 %>% filter(settings != opt$settings | case != opt$case)
+  xm2 <- subset(xm2, AICc == xm2$AICc[which(order(xm2$AICc) == 2)])
+  
+  
+  dff <- rbind(xm1, xm2)
+  
+  sp_filtered[[sp]] <- dff
+}
+
+df.final <- do.call(rbind, sp_filtered)
 
 df.final <- split(df.final, df.final$species)
 
@@ -230,10 +219,7 @@ dff <- lapply(df.final, function(x) {
   }
 })  
 
+#Combine and write results
 dff <- do.call(rbind, dff)
-
-dir.create('output/models/final_models')
-
-write_csv(dff, 'output/models/final_models/Choosen_models_marmosini_m1&m2.csv')
-
-source('R/4a_explore_and _choose_suboptimal.R')
+dir.create('output/models/final_subopt_models')
+write_csv(dff, 'output/models/final_subopt_models/Choosen_models_marmosini_m1&m2.csv')
