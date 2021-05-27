@@ -4,7 +4,7 @@ This is the workflow for the paper entitled 'Distribution and conservation of th
 
 A link to the preprint version of the manuscript can be found at: ![](www.asda.com)
 
-## **IMPORTANT:** THIS SCRIPT IS DESING TO FUNCTION WITH PACKAGE `<ENMeval>` < 2.0.0 
+## **IMPORTANT:** THIS SCRIPT IS DESING TO FUNCTION WITH PACKAGE `ENMeval` < 2.0.0 
 
 ## Additional datasets required to run this repository
 
