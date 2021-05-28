@@ -1,17 +1,23 @@
 # Species Distribution Models of the Marmosini species of Colombia
 
 ## Table of contents
-* [Additional datasets] Additional datasets
-* [How to run this workflow] How to run this workflow
-* [Other software involved] Other software involved
-* [Authors and participations] Authors and participations
-* [Future work] Future work
+* [Additional datasets](#additional-datasets)
+* [How to run this workflow](#how-to-run-this-workflow)
+* [Other software involved](#other-software-involved)
+* [Authors and contributions](#authors-and-contributions)
+* [Future work](#future-work)
+
+---
 
 This is the workflow for the paper entitled 'Distribution and conservation of the species of Marmosini (Didelphimorphia, Didelphidae) from Colombia'. It is an **R** workflow with some minor additions and modification from QGIS. This work uses MaxEnt models to delimit the distribution of 16 species of Marmosini (Didelphidae) from Colombia, which include the genera *Marmosa* and *Monodelphis*. The workflow part from data preparation and gathering and ends in a full reproducible scripts of our main results and supporting information. Please see below and read **METHODS** section of our manuscript (pending acceptance) for a detailed explanation of methods and requirements. 
 
 A link to the preprint version of the manuscript can be found at: [](www.asda.com)
 
+---
+
 ### **IMPORTANT:** THIS SCRIPT IS DESING TO FUNCTION WITH PACKAGE `ENMeval` < 2.0.0 
+
+---
 
 ## Additional datasets
 
@@ -26,6 +32,24 @@ Following is the folders that the user should create in the base directory of th
 | BiomeSHP/ | Ecoregion map in shapefile (.shp) format | We used the dataset by [Dinerstein et al. (2017)](https://academic.oup.com/bioscience/article/67/6/534/3102935) |
 | WDPA/ | Word Database on Protected Areas in .shp format | We used the dataset from February 2021, available at https://www.protectedplanet.net/ |
 
+---
 
 ## How to run this workflow
 - You have two options, go one by one of the scripts or use the 'R/3_fit_models.R' archive to source automatically the previous scrpts. Either way, all other scripts should be run separately since they are not inter-dependent as the preivous ones. 
+
+---
+
+
+## Other software involved
+
+---
+
+
+## Authors and contributions
+
+---
+
+
+## Future work
+
+---
