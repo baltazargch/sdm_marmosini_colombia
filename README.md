@@ -47,8 +47,8 @@ We used **QGIS 3.16** software to modified manually final models according to ge
 
 ## Authors and contributions
 * This repository was desing, organized and commented by **Baltazar González** (baltazargch@gmail.com)
-* Gabriel Martin and Federico Brook (co-authors of the manuscript associated with this workflow) participated in all the methodological and conceptual design.
-* **NatureMap Argentina** provided the computer power necessary for this study
+* **Gabriel Martin** and **Federico Brook** (co-authors of the manuscript associated with this workflow) participated in all the methodological and conceptual design.
+* **NatureMap Argentina** provided the computer power needed for this study
 
 ---
 
