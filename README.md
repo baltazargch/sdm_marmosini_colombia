@@ -1,3 +1,5 @@
+![](images/readme_image.png)
+
 # Species Distribution Models of the Marmosini species of Colombia
 
 ## Table of contents
