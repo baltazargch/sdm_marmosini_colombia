@@ -38,7 +38,7 @@ Following is the folders that the user should create in the base directory of th
 ---
 
 ## How to run this workflow
-You have two options: go one by one with each of the scripts, or use the 'R/2_fit_models.R' archive to source automatically the previous scripts. Either way, all other scripts should be ran separately since they are not inter-dependent as the previous ones. This script is design to function at the later stages with Colombia as the spatial target. However, this and other parameters can be easily tweaked to replicate the analyses in other regions.
+You have two options: go one by one with each of the scripts, or use the 'R/5_make_maps_for_revision.R' to source automatically the previous scripts. Either way, all other scripts should be ran separately since they are not inter-dependent as the previous ones. Specially the 'R/6_make_shapes_final_modif.R' where the object `goodmodels` should be chose manually by the author according to its expert criteria of maps and model performance. All model results will be placed in the folder *output* upong script excecution. Some figures are saved in the folder *results* upon runing the 'R/reults.R' script. These scripts are design to function at the later stages with Colombia as the spatial target. However, this and other parameters can be easily tweaked to replicate the analyses in other regions.
 
 ---
 
