@@ -7,7 +7,7 @@ library(wdpar)
 library(parallel)
 
 #Source user-defined function to calculate cover fraction poly-vs-raster
-source('/mnt/2TB/UDF/getCover_from_gdal.R')
+source('R/UDF/getCover_from_gdal.R')
 
 #Base world and Colombia map
 wmap <- read_sf('wmap/ne_10m_admin_0_countries.shp')
@@ -53,8 +53,8 @@ NPA_gov <- NPA_cleaned %>%
   st_transform(crs=3116) %>% st_buffer(0) %>%  st_transform(crs=4326)
 
 #Read ranges manually modified by expert. See first commento of "7:make_shapes_final_modif.R"
-ranges <- lapply(list.files('output/definitive_rages/', pattern = '.shp', full.names = T), read_sf)
-names(ranges) <- gsub('.shp$', '', list.files('output/definitive_rages/', '.shp$'))
+ranges <- lapply(list.files('output/definitive_ranges/', pattern = '.shp', full.names = T), read_sf)
+names(ranges) <- gsub('.shp$', '', list.files('output/definitive_ranges/', '.shp$'))
 
 #Prepare Human Index data. Make discrete scale
 if(!file.exists('HFP/pressure_Colombia.tif')){
@@ -136,24 +136,25 @@ for(i in 1:NROW(dt_results)){
           zone = c('0', '1'), 
           pol_proportions = c(0,0)
         )
-      } else if(NROW(area_z$zone) == 1 && area_z$zone == 0){
+      } else if(NROW(area_z[,1]) == 1 && area_z[,1] == 0){
         area_z[2,] <- c('1', 0)
-        area_z$pol_proportions <- as.numeric(area_z$pol_proportions)
+        # area_z[2,2] <- as.numeric(area_z[1,2])
 
-      } else if(NROW(area_z$zone) == 1 && area_z$zone == 1) {
+      } else if(NROW(area_z[,1]) == 1 && area_z[,1] == 1) {
         surr <- area_z
         area_z <- data.frame(
           zone= c('0','1'), 
-          pol_proportions = c(0, surr$pol_proportions)
+          pol_proportions = c(0, surr[1,2])
         )
       }
       
+      area_z[,2] <- as.numeric(area_z[,2])
       cols <- paste0(con, c('_total_area', '_low_pres_area', '_high_pres_area', '_no_data'))
       
       dt_out <- data.frame(
         sp, 
         sum(st_area(pa_target[j,]) * 1e-06) %>% as.numeric(), 
-        area_z$pol_proportions[1], area_z$pol_proportions[2],  
+        area_z[1,2], area_z[2,2],  
         sum(st_area(pa_target[j,]) * 1e-06) %>% as.numeric() - sum(area_z[ , 2]) 
       )
       
@@ -203,24 +204,26 @@ for(i in 1:NROW(dt_results)){
           zone = c('0', '1'), 
           pol_proportions = c(0,0)
         )
-      } else if(NROW(area_z$zone) == 1 && area_z$zone == 0){
+      } else if(NROW(area_z[,1]) == 1 && area_z[,1] == 0){
         area_z[2,] <- c('1', 0)
-        area_z$pol_proportions <- as.numeric(area_z$pol_proportions)
+        # area_z[2,2] <- as.numeric(area_z[1,2])
         
-      } else if(NROW(area_z$zone) == 1 && area_z$zone == 1) {
+      } else if(NROW(area_z[,1]) == 1 && area_z[,1] == 1) {
         surr <- area_z
         area_z <- data.frame(
           zone= c('0','1'), 
-          pol_proportions = c(0, surr$pol_proportions)
+          pol_proportions = c(0, surr[1,2])
         )
       }
+      
+      area_z[,2] <- as.numeric(area_z[,2])
       
       cols <- paste0(gov, c('_total_area', '_low_pres_area', '_high_pres_area', '_no_data'))
       
       dt_out <- data.frame(
         sp, 
         sum(st_area(pa_target[j,]) * 1e-06) %>% as.numeric(), 
-        area_z$pol_proportions[1], area_z$pol_proportions[2],  
+        area_z[1,2], area_z[2,2],  
         sum(st_area(pa_target[j,]) * 1e-06) %>% as.numeric() - sum(area_z[ , 2]) 
       )
       

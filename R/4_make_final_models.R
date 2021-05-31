@@ -3,12 +3,12 @@
 options(java.parameters = "-Xmx8g" )
 
 #Source previous script to include data into the environment
-source('R/3_fit_models.R')
+source('R/3_explore_and_choose_models.R')
 
 #Remove what isn't necessary for this step
-rm(list=c('namesEnv', 'NombresOCCS', 'preds', 'rasterPreds', 'RMlists', 'sp.files', 
-          'algorithm', 'all.files', 'csv', 'DATA_WD', 'envsFiles', 'FClist', 'filesR',
-          'flag.csv', 'i', 'sp.csv'))
+rm(list=c('namesEnv', 'preds', 'rasterPreds', 'RMlists', 'sp.files', 
+          'algorithm', 'all.files', 'DATA_WD', 'envsFiles', 'FClist', 
+           'i'))
 
 #Load, name, and subset the predictors layers
 envsFiles <- list.files('LayersBank', pattern = '.grd$', full.names = T)
@@ -303,9 +303,8 @@ table_models <- read.csv('output/models/final_subopt_models/Choosen_models_marmo
 #Shut on or off the parrallel processing by commenting or uncommenting the first
 #line of the code
 
-for (sp in unique(table_models$species)){
-  # foreach(sp=unique(table_models$species)) %dopar% {
-  # sp = 'Marmosa_alstoni'
+# for (sp in unique(table_models$species)){
+  foreach(sp=unique(table_models$species)) %dopar% {
   flag <- list.files(paste0('output/models/final_subopt_models/', sp), recursive = T)
   if(length(flag) == 24){
     message(sp, ' está completo. Pasando a siguiente especie')
@@ -336,13 +335,7 @@ for (sp in unique(table_models$species)){
   dir.create(dir.sp)
   
   # loop for area M ----------------------------------------------------------
-  library(doParallel)
-  options(cores=4)
-  registerDoParallel()
-  getDoParWorkers()
-  
-  foreach(i=1:NROW(tbl_sp)) %dopar% {
-    # for(i in 1:NROW(tbl_sp)){
+  for(i in 1:NROW(tbl_sp)){
     occ.sp <- OCCS[[ sp ]]
     
     fold <- getPartitions(occ.sp, bg.points[[ settings$area[i] ]][[sp]], settings$cv[i])

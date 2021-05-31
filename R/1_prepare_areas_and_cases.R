@@ -6,6 +6,7 @@ library(tidyverse)
 
 #Source area M function
 source('R/UDF/make_area_m.R')
+source('R/0_prepare_data.R')
 
 #Species' records directory
 DATA_WD   <- here("records") #path where the records are
@@ -24,11 +25,13 @@ OCCS <- lapply(OCCS, function(x) { subset(x, rep != TRUE) })
 
 #Read data if areas are to be calculated. Otherwise do not read the data.
 if(!file.exists("AreaM/M1bgmask.RData") & !file.exists("AreaM/M2bgmask.RData")) {
-  world <- read_sf('/mnt/2TB/GIS_datos/Vectores/Mundo/ne_10m_admin_0_countries.shp')
-  ecoregions <- read_sf('/mnt/2TB/GIS_datos/Vectores/Biologicos/Bioregiones/Ecoregions2017/America_ecoregions2017.shp')
+  world <- read_sf('wmap/ne_10m_admin_0_countries.shp')
+  ecoregions <- read_sf('BiomeSHP/wwf_terr_ecos.shp')
+  ecoregions <- ecoregions %>% filter(REALM == 'NT')
   ecoregions <- st_buffer(ecoregions, 0) #make sure data is valid
 }
 
+dir.create('AreaM', showWarnings = F)
 #Calculate M1 area: buffer-derived
 if(file.exists("AreaM/M1bgmask.RData")){  
   load(file="AreaM/M1bgmask.RData")
@@ -61,6 +64,7 @@ library(parallel)
 #in alphabetical order. If data exist and no new species, only load the data
 #without calculating it.
 
+dir.create('records/XYMs', showWarnings = FALSE)
 #Background points for M1
 if (file.exists(paste0(DATA_WD, "/XYMs/M1bgxy.RData"))){
   # chunk added for new species
@@ -147,6 +151,7 @@ envPredics <- envPredics[c(paste0('bio_', c(2,4,6,10,11,15,16,17)),
 #As above, if new species are added, this script automatically add the predictors
 #cases to the data. If already all species have data, only read it and it does not 
 #calculate again. 
+dir.create('Cases', showWarnings = F)
 
 if(file.exists('Cases/cases.rds')){
   cases <- readRDS('Cases/cases.rds')
@@ -176,7 +181,7 @@ if(file.exists('Cases/cases.rds')){
     saveRDS(cases, 'Cases/cases.rds')
   }
 } else {
-  dir.create('Cases')
+  dir.create('Cases', showWarnings = F)
   cases <- list(onlywc = c(paste0('bio_', c(2,4,6,10,11,15,16,17))), 
                 ud.all = c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri', 'msavi'),
                 ud.noplants = c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri'),

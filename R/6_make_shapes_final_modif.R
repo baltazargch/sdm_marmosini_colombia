@@ -1,4 +1,4 @@
-# After visual inspection of optimal and suboptimal models, this script chose the 
+# After visual inspection of optimal and sub optimal models, this script chose the 
 # final selected models and create a shapefile according to the data.frame 'goodmodels'.
 # Final shapes where then modify according to geographic barriers that can be consulted 
 # at the manuscript supporting information (pending acceptance).
@@ -21,6 +21,8 @@ OCCS <- lapply(list.files('records', pattern = '.csv$', full.names = T), read.cs
 
 names(OCCS) <- gsub(".csv", "", list.files('records', pattern = '.csv$', full.names = F))
 
+#This were chosen manually. So the table should be modified according to species number
+# and selection of area M and optimal or suboptimal models. 
 goodmodels <- data.frame(
   species = names(OCCS), 
   area = c('M2', 'M2', 'M1', 'M2', 'M2',

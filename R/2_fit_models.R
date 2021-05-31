@@ -1,5 +1,4 @@
 #### MODEL FITTING ####
-
 #assign ram for java usage (for MaxEnt)
 options(java.parameters = "-Xmx4g" )
 
@@ -40,9 +39,9 @@ for (i in seq_along(OCCS)){
     FClist <- c('L', 'LQ', 'LQP')
   }
   
-  #This is a resource- and time-consuming computation (relative to the computer)
-  #power available. This tries to reduced this by not calculating species already
-  #assess. This way, the process can be divided in different sessions. 
+  #This is a resource- and time-consuming computation (relative to the computer
+  #power available). This tries to reduced by not calculating species already
+  #assessed. This way, the process can be divided in different sessions. 
   all.files <- list.files('output/models/', recursive = T, pattern = '.csv$')
   all.files <- all.files[ !str_detect(all.files, 'final_models|final_subopt_models') ]
   sp.files <- all.files[str_detect(all.files, names(OCCS[i]))]

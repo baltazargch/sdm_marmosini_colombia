@@ -1,5 +1,5 @@
 #### OPTIMAL MAPS ####
-
+source('R/4_make_final_models.R')
 # read and load libraries and info
 library(sf)
 library(raster)

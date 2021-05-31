@@ -1,6 +1,6 @@
 #### MODEL FILTERING, EVALUATION AND CHOOSNG ####
 library(tidyverse)
-source('R/3_fit_models.R')
+source('R/2_fit_models.R')
 
 #Access each species model directory and results and make one table. 
 #If new species were added, this script add them automatically to the table.
