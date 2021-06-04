@@ -43,7 +43,7 @@ You have two options: go one by one with each of the scripts, or use the 'R/5_ma
 ---
 
 ## Other software involved
-We used **QGIS 3.16** software to manually the final models according to geographical barriers proposed (see here preprint text for details). Importantly, this script was ran with **MaxEnt v. 3.4.0** through the `dismo` package of R. Similarly, we used **gdal 3.3.0** from R to make some faster calculations (compared to the package `raster` from R, but note that `terra` package has overcome these caveats too).
+We used **QGIS 3.16** software to manually modify the final models according to geographical barriers proposed (see here preprint text for details). Importantly, this script was ran with **MaxEnt v. 3.4.0** through the `dismo` package of R. Similarly, we used **gdal 3.3.0** from R to make some faster calculations (compared to the package `raster` from R, but note that `terra` package has overcome these caveats too).
 
 ---
 
