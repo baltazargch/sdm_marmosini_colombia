@@ -1,27 +1,22 @@
 #### MAKE MODEL AREAS ####
 library(sf)
-library(here)
 library(parallel)
 library(tidyverse)
 
-#Source area M function
-source('R/UDF/make_area_m.R')
+# source user-defined functions
+walk(list.files('R/UDF/', '.R$', full.names = T), source)
 source('R/0_prepare_data.R')
 
-#Species' records directory
-DATA_WD   <- here("records") #path where the records are
-
 #Load and name species records
-OCCS    <- lapply(list.files(DATA_WD, pattern = ".csv$", full.names = T), read.csv) 
-names(OCCS) <- gsub("\\.csv$", "", list.files(DATA_WD, pattern = ".csv$", full.names = F)) 
+OCCS <- read.occs()
 
-#Exclude duplicated records
-OCCS <- lapply(OCCS, function(x) { subset(x, rep != TRUE) })
-
-#This is a conditional approach. If data exists, it does not calculated it again
+#This is a conditional approach. If data exists, it does not calculate it again
 #but instead load it to the environment. If new species are added, erase the file
 #"AreaM/M*bgmask.RData" and run the code. Note that M2 uses parallel computing. 
 #Adjust cores according to your computer capacity.
+
+# Turn off spherical geometries
+sf_use_s2(F)
 
 #Read data if areas are to be calculated. Otherwise do not read the data.
 if(!file.exists("AreaM/M1bgmask.RData") & !file.exists("AreaM/M2bgmask.RData")) {
@@ -64,89 +59,76 @@ library(parallel)
 #in alphabetical order. If data exist and no new species, only load the data
 #without calculating it.
 
+env_rast <- rast('/mnt/2TB/GIS/Rasters/Clima/South-Central Ame Climate/bio_1.grd')
 dir.create('records/XYMs', showWarnings = FALSE)
-#Background points for M1
-if (file.exists(paste0(DATA_WD, "/XYMs/M1bgxy.RData"))){
-  # chunk added for new species
-  load(file=paste0(DATA_WD, "/XYMs/", "M1bgxy.RData"))
-  
-  if(any(!names(OCCS)  %in% names(M1bgxy))){
-    sp_new <- names(OCCS)[ which(!names(OCCS)  %in% names(M1bgxy))]
-    sp_new <- OCCS[ sp_new ]
-    
-    masks_sp_new <- M1bgmask[ names(sp_new) ]
-    
-    new_bgxy  <- lapply(masks_sp_new, function(x){
-      p <- st_sample(x, 10000)
-      p <- as.data.frame(st_coordinates(p)); colnames(p) <- c('x', 'y')
-      p
-    })
-    
-    M1bgxy[ names(sp_new) ] <- new_bgxy
-    M1bgxy <- M1bgxy[ names(OCCS) ]
-    
-    #error control
-    stopifnot(identical(names(M1bgxy), names(OCCS)))
-    save(M1bgxy, file=paste0(DATA_WD, "/XYMs/M1bgxy.RData"))
-  }
-} else {
-  M1bgxy  <- lapply(M1bgmask, function(x){
-    p <- st_sample(x, 10000)
-    p <- as.data.frame(st_coordinates(p)); colnames(p) <- c('x', 'y')
-    p
-  })
-  save(M1bgxy, file=paste0(DATA_WD, "/XYMs/M1bgxy.RData"))
-}
 
-#Background points for M2
-if (file.exists(paste0(DATA_WD, "/XYMs/M2bgxy.RData"))){
-  # chunk added for new species
-  load(file=paste0(DATA_WD, "/XYMs/", "M2bgxy.RData"))
+area.types <- c('M1', 'M2')
+mmask <- list(M1bgmask = M1bgmask, M2bgmask = M2bgmask)
+
+for(type in area.types){
+  # type='M1'
+  fl <- paste0("records/XYMs/", type, "bgxy.RDS")
+  case.mask <- switch(type, M1 = 'M1bgmask', M2 = 'M2bgmask')
+  case.mask <- mmask[[ case.mask ]]
   
-  if(any(!names(OCCS)  %in% names(M2bgxy))){
-    sp_new <- names(OCCS)[ which(!names(OCCS)  %in% names(M2bgxy))]
-    sp_new <- OCCS[ sp_new ]
+  if(file.exists(fl)){
     
-    masks_sp_new <- M2bgmask[ names(sp_new) ]
+    # chunk added for new species
+    mxy <- readRDS(file=fl)
     
-    new_bgxy  <- lapply(masks_sp_new, function(x){
-      p <- st_sample(x, 10000)
-      p <- as.data.frame(st_coordinates(p)); colnames(p) <- c('x', 'y')
+    if(any(!names(OCCS)  %in% names(mxy))){
+      sp_new <- names(OCCS)[ which(!names(OCCS)  %in% names(mxy))]
+      sp_new <- OCCS[ sp_new ]
+      
+      masks_sp_new <- case.mask[ names(sp_new) ]
+      
+      new_bgxy  <- lapply(masks_sp_new, function(x){
+        p <- mask(crop(env_rast, x), vect(x))
+        p <- terra::spatSample(p, 10000, na.rm=T, xy=T, values=F, as.df=T)
+        p
+      })
+      
+      mxy[ names(sp_new) ] <- new_bgxy
+      mxy <- mxy[ names(OCCS) ]
+      
+      #error control
+      stopifnot(identical(names(mxy), names(OCCS)))
+      saveRDS(mxy, file=fl)
+    } else {
+      
+      case.mask <- switch(type, M1 = 'M1bgxy', M2 = 'M2bgxy')
+      
+      assign(case.mask, readRDS(fl))
+      rm('mxy')
+    }
+  } else {
+    mxy  <- lapply(case.mask, function(x){
+      p <- mask(crop(env_rast, x), vect(x))
+      p <- terra::spatSample(p, 10000, na.rm=T, xy=T, values=F, as.df=T)
       p
     })
+    saveRDS(mxy, file=fl)
     
-    M2bgxy[ names(sp_new) ] <- new_bgxy
-    M2bgxy <- M2bgxy[ names(OCCS) ]
+    case.mask <- switch(type, M1 = 'M1bgxy', M2 = 'M2bgxy')
     
-    #error control
-    stopifnot(identical(names(M2bgxy), names(OCCS)))
-    save(M2bgxy, file=paste0(DATA_WD, "/XYMs/M2bgxy.RData"))
+    assign(case.mask, readRDS(fl))
+    rm('mxy')
   }
-} else {
-  M2bgxy  <- lapply(M2bgmask, function(x){
-    p <- st_sample(x, 10000)
-    p <- as.data.frame(st_coordinates(p)); colnames(p) <- c('x', 'y')
-    p
-  })
-  save(M2bgxy, file=paste0(DATA_WD, "/XYMs/M2bgxy.RData"))
 }
 
 #### MAKE MODEL CASES ####
 
-#source user-define function to remove correlation among predictors with
-#package terra, for reduced multicollinearity case
-source('R/UDF/terra_Remove_Cor.R')
-
-
 #load and name predictors layers
-envsFiles <- list.files('LayersBank/', pattern = '.grd$', full.names = T)
-namesEnv <- gsub('.grd', '', list.files('LayersBank/', pattern = '.grd$', full.names = F))
-envPredics <- rast(envsFiles)
-names(envPredics) <- namesEnv
+dir.rast ='/mnt/2TB/GIS/Rasters/Clima/South-Central Ame Climate/'
 
 #choose those predictors known to be important for marsupial distribution
-envPredics <- envPredics[c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 
-                           'topoWet', 'tri', 'msavi')]
+envPredics <- read.envs(dir.rast)
+vars.chosen <- c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri', 'msavi')
+
+envPredics <- envPredics[[ vars.chosen ]]
+
+#error control
+stopifnot(all(names(envPredics) == vars.chosen))
 
 #As above, if new species are added, this script automatically add the predictors
 #cases to the data. If already all species have data, only read it and it does not 
@@ -181,7 +163,7 @@ if(file.exists('Cases/cases.rds')){
     saveRDS(cases, 'Cases/cases.rds')
   }
 } else {
-  dir.create('Cases', showWarnings = F)
+
   cases <- list(onlywc = c(paste0('bio_', c(2,4,6,10,11,15,16,17))), 
                 ud.all = c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri', 'msavi'),
                 ud.noplants = c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri'),
@@ -195,3 +177,6 @@ if(file.exists('Cases/cases.rds')){
   })
   saveRDS(cases, 'Cases/cases.rds')
 }
+
+rm(list=c('dt_rast', 'env_rast', 'mmask', 'X', 'area.types', 'case.mask', 'fl', 
+             'i', 'type'))

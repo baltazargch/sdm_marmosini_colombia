@@ -1,535 +1,220 @@
 #### MAKE MODELS FOR VISUAL INSPECTION AND EVALUATION ####
 #Assign ram limit to java process (MaxEnt)
-options(java.parameters = "-Xmx8g" )
+options(java.parameters = "-Xmx4g" )
 
-#Source previous script to include data into the environment
-source('R/3_explore_and_choose_models.R')
+library(sf)
+library(tidyverse)
+library(terra)
+library(ENMeval)
+library(doParallel)
+walk(list.files('R/UDF/', '.R$', full.names = T), source)
 
-#Remove what isn't necessary for this step
-rm(list=c('namesEnv', 'preds', 'rasterPreds', 'RMlists', 'sp.files', 
-          'algorithm', 'all.files', 'DATA_WD', 'envsFiles', 'FClist', 
-           'i'))
+dir.rast <- '/mnt/2TB/GIS/Rasters/Clima/South-Central Ame Climate/'
 
-#Load, name, and subset the predictors layers
-envsFiles <- list.files('LayersBank', pattern = '.grd$', full.names = T)
-names(envsFiles) <- gsub('.grd', '', list.files('LayersBank/', pattern = '.grd$', full.names = F))
+#Load the data
+OCCS <- read.occs()
+cases <- readRDS('Cases/cases.rds')
 
-preds <- c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 'topoWet', 'tri', 'msavi')
+envsPredics <- read.envs(dir.rast)
+envsPredics <- envsPredics[[ cases$ud.all ]]
 
-predictors <- rast(envsFiles[preds])
-names(predictors) <- preds
+flag <- list.files('output/models/', recursive = T) %>% 
+  .[ !str_detect(., 'maps/')]
+if(length(flag) >= 48 * length(OCCS)){
+  message('All species complete')
+  stop()
+}
 
-  #### OPTIMAL MODELS ####
+envsPredics <- terra::app(envsPredics, fun = \(x) {if(sum(is.na(x)) > 0) x * NA else x})
+
+masks <- lapply(list.files('AreaM/', 'RData', full.names = T), \(x) get(load(x)))
+
+bg.points <- map(list.files('records/XYMs/', pattern = 'RDS', full.names = T), readRDS)
+names(bg.points) <- names(masks) <- c('M1', 'M2')
+
+#### OPTIMAL MODELS ####
 
 #Load table of chosen models
-table_models <- read.csv('output/models/final_models/Choosen_models_marmosini_m1&m2.csv') 
+table_models <- rbind(
+  read.csv('output/fitting/Choosen_models_marmosini_m1&m2.csv'), 
+  read.csv('output/fitting/Subopt_models_marmosini_m1&m2.csv')[,-26] 
+)
 
-# helper functions ----------------------------------------------------------
-getPartitions <- function(x, bg, method){
-  if (method == 'random'){
-    y <- ENMeval::get.randomkfold(x[,c('longitude', 'latitude')], bg[,c('x','y')], 5)
-  } else if (method == 'jackk') {
-    y <- ENMeval::get.jackknife(x[,c('longitude', 'latitude')], bg[,c('x','y')])
-  } else if(method == 'block'){
-    y <- ENMeval::get.block(x[,c('longitude', 'latitude')], bg[,c('x','y')])
-  }
-  return(y)
-}
-
-getFeaturesArgs <- function(x){
-  switch (x,
-          L = c('-h','-q','-p', 'threshold=false'), 
-          LQ = c('-h','-p', 'threshold=false'),
-          LQP = c( '-h', 'threshold=false'),
-          H = c('-l', '-q','-p', 'threshold=false'),
-          LQH = c('-p', 'threshold=false'),
-          LQHP = c('threshold=false'), 
-          LQHPT = c('threshold=true')
-  )
-}
 
 # loop for species -----------------------------------------------------------
-library(doParallel)
-options(cores=6) #adjust according to computer hardware
+options(cores=2) #adjust according to computer hardware
 registerDoParallel()
 getDoParWorkers()
 
 #Following is the process for final optimal models (and it applies for suboptimal too):
 #According to the model chosen for each species, we ran MaxEnt models again to 
-#extract the prediction rasters and boyce metrics, not previusly obtained by the 
-#ENMevaluate function in '3_fit_models.R' script. Note that we used ENMeval 1.0
-#so Boyce metrics was calculated manually outside the ENMevaluate function. 
+#extract the prediction rasters and boyce metrics, not previously obtained by the 
+#ENMevaluate function in '2_fit_models.R' script. 
 
 #These following steps create a tables, html, figures and maps fo each species, 
-#that were inspected visually one by one to evaluate the models performance and fitting.
-#since partitions are applied at random, some metrics varied slightly. Other data where
+#that were inspected visually one by one to evaluate the models performance.
+#Since partitions are applied at random, some metrics varied slightly. Other data where
 #the exact same as for the initial models. 
 
 #Importantly, in this step we used the maxSSS threshold to explore the results 
 #in a absent/present map for further application. That is, to transform the 
 #continuous prediction to discrete maps: range distribution maps. 
 
-#Shut on or off the parrallel processing by commenting or uncommenting the first
+#Shut on or off the parallel processing by commenting or uncommenting the first
 #line of the code
-for (sp in unique(table_models$species)){
-# foreach(sp=unique(table_models$species)) %dopar% {
-  flag <- list.files(paste0('output/models/final_models/', sp), recursive = T)
-  if(length(flag) == 24){
+for(sp in unique(table_models$species)){
+  # foreach(sp=unique(table_models$species), 
+  #         .packages = c('tidyverse', 'terra', 'raster', 'ENMeval', 'sf')) %dopar% {
+  # sp = unique(table_models$species)[1]
+  
+  flag <- list.files(paste0('output/models/', sp), recursive = T)
+  if(length(flag) == 48){
     message(sp, ' está completo. Pasando a siguiente especie')
     next
   }
-  tbl_sp <- subset(table_models, species == sp)
-  
-  m1mask <- data.frame(pol='pol')
-  st_geometry(m1mask) <- M1bgmask[[sp]]
-  m2mask <- data.frame(pol='pol')
-  st_geometry(m2mask) <- M2bgmask[[sp]]
-  
-  masks <- list(M1 = m1mask, M2=m2mask)
-  bg.points <- list(M1 = M1bgxy, M2= M2bgxy)
   
   # extract settings ---------------------------------------------------------
-  settings <- list(
-    sp = sp,
-    case = tbl_sp$case,
-    fea = tbl_sp$features,
-    rm = tbl_sp$rm,
-    area = tbl_sp$area,
-    cv = tbl_sp$cross.validation, 
-    auc = tbl_sp$train.AUC
-  )
+  tbl_sp <- subset(table_models, species == sp)
   
-  dir.sp <- paste0('output/models/final_models/', sp)
-  dir.create(dir.sp)
+  dir.sp <- paste0('output/models/', sp)
+  dir.create(dir.sp, recursive = T)
+  
+  subdirs <- paste0(dir.sp, '/', c('plots', 'tables', 'rasters', 'models'))
+  walk(subdirs, dir.create)
+  
+  occ.sp <- OCCS[[ sp ]][, 2:3]
   
   # loop for area M ---------------------------------------------------------
-  for(i in 1:NROW(tbl_sp)){
-    occ.sp <- OCCS[[ sp ]]
-    
-    fold <- getPartitions(occ.sp, bg.points[[ settings$area[i] ]][[sp]], settings$cv[i])
-    
-    nk <- length(unique(fold$occ.grp))
-    
-    occtest <- occ.sp[ fold$occ.grp == 1 , ]
-    occtrain <- occ.sp[ fold$occ.grp != 1 , ]
-    
-    p <- c(rep(1, NROW(occ.sp)), rep(0, NROW(bg.points[[ settings$area[i] ]][[sp]])))
-    
-    # get data --------------------------------------------------------------
-    if(settings$case[i] != 'uncorr'){
-      data <- as.data.frame(
-        rbind(extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                      occ.sp[,c('longitude', 'latitude')])[,-1],
-              extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                      bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1])
-      )
-      
-      pres.data <- extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                           occ.sp[,c('longitude', 'latitude')])[,-1]
-      bg.data <- extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                         bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1]
-      
-      case.vars <- cases[[ settings$case[i] ]] 
-    } else {
-      data <- as.data.frame(
-        rbind(
-          extract(predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]]  ]],
-                  occ.sp[,c('longitude', 'latitude')])[,-1],
-          extract(predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]] ]],
-                  bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1])
-        )
-      
-      pres.data <- extract(
-        predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]]  ]],
-                           occ.sp[,c('longitude', 'latitude')])[,-1]
-      bg.data <- extract(
-        predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]] ]],
-                         bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1]
-      
-      case.vars <- cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]]
-    }
-    
-    AUC.TEST <- double()
-    AUC.DIFF <- double()
-    maxSSS <- double()
-    no_omi <- double()
-    for(j in 1:nk){
-      train.val <- pres.data[fold$occ.grp != j, , drop = FALSE]
-      test.val <- pres.data[fold$occ.grp == j, , drop = FALSE]
-      bg.val <- bg.data[fold$bg.grp != j, , drop = FALSE]
-      x <- as.data.frame(rbind(train.val, bg.val))
-      p.fit <- c(rep(1, nrow(train.val)), rep(0, nrow(bg.val)))
-      mod <- maxent(x=x, p=p.fit, args = c('autofeature=false',
-                                           paste0('betamultiplier', '=', settings$rm[i]), 
-                                           getFeaturesArgs(settings$fea[i])))
-      
-      AUC.TEST[j] <- dismo::evaluate(test.val, bg.data, mod)@auc
-      AUC.DIFF[j] <- max(0, dismo::evaluate(train.val, bg.data, 
-                                            mod)@auc - AUC.TEST[j])
-       
-      testp <- dismo::predict(mod, data.frame(test.val))
-      testa <- dismo::predict(mod, data.frame(bg.data))
-       
-      e <- evaluate(p=testp, a=testa)
-       
-      tab <- base::cbind(e@t, e@TPR + e@TNR)
-      maxSSS[j] <- (base::subset(tab, tab[, 2] == max(tab[, 2])))[1, 1]
-      no_omi[j] <- as.numeric(threshold(e)[3])
-    }
-    
-    pdat <- cbind(p, data)
-    
-    data <- as.data.frame(na.omit(pdat)[,-1])
-    p <- as.data.frame(na.omit(pdat)[,1])
-    
-    # make model -------------------------------------------------------------
-    mod_sp <- maxent(x=data, p=p, removeDuplicates=T, 
-                     args=c('autofeature=false',
-                            paste0('betamultiplier', '=', settings$rm[i]), 
-                            getFeaturesArgs(settings$fea[i])
-                     )
-    )
-    
-    r <- dismo::predict(mod_sp, stack(mask(crop(predictors[[ case.vars  ]],
-                                                vect(masks[[ settings$area[i] ]])), 
-                                           vect(as(masks[[ settings$area[i] ]], 'Spatial')))), 
-                        args=c("outputformat=cloglog", 'threads=4'))
-    
-    # evaluate ---------------------------------------------------------------
-    e3 <- evaluate(p=data[p == 1,], 
-                   a=data[p == 0,], 
-                   mod_sp)
-
-    tab <- base::cbind(e3@t, e3@TPR + e3@TNR)
-    SSS <- (base::subset(tab, tab[, 2] == max(tab[, 2])))[1, 1]
-    NO <- as.numeric(threshold(e3)[3])
-    # boyce ------------------------------------------------------------------
-    boyce.fit <- r
-    boyce.obs <- extract(r, occ.sp[c('longitude', 'latitude')])
-    boyce.analysis <- ecospat::ecospat.boyce(boyce.fit, boyce.obs, PEplot = F)
-    
-    # write info -------------------------------------------------------------
-    subdirs <- paste0(dir.sp, '/', c('plots', 'tables', 'rasters', 'models'))
-    walk(subdirs, dir.create)
-    
-    basename <- paste(settings$area[i], settings$case[i], 
-                      settings$fea[i], settings$rm[i], settings$cv[i],sep='_',
-                      collapse = '')
-    
-    writeRaster(r, paste0(subdirs[3], '/', basename, '.tif'))
-    
-    png(paste0(subdirs[1], '/', 'thresholded_maps_', basename, '.png'), 
-        width = 30, height = 18,
-        units = 'cm', res = 150)
-    par(mfrow=c(1,2))
-    plot(r >= SSS, main=paste('Prediction threholded \n at maxSSS = ', 
-                                       round(SSS,3)), legend=F)
-    points(occ.sp[,2:3], pch='+')
-    plot(r > as.numeric(threshold(e3)[3]), main=paste('Prediction threholded \n at no_omission = ', 
-                    round(as.numeric(threshold(e3)[3]), 3)), legend=F)
-    points(occ.sp[,2:3], pch='+')
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'variable_response_', basename, '.png'), width = 20, 
-        height = 18,units = 'cm', res = 150)
-    response(mod_sp)
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'variable_contribution_', basename, '.png'), width = 20, 
-        height = 18,units = 'cm', res = 150)
-    plot(mod_sp)
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'ROC_TPR_', basename, '.png'), width = 30, 
-        height = 18,units = 'cm', res = 150)
-    par(mfrow=c(1,2))
-    plot(e3, 'ROC')
-    plot(e3, 'TPR')
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'miscellaneus_', basename, '.png'), width = 30, 
-        height = 18,units = 'cm', res = 150)
-    par(mfrow=c(1,2))
-    boxplot(e3, notch=F)
-    density(e3)
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'boyce_', basename, '.png'), width = 30, 
-        height = 18,units = 'cm', res = 150)
-    r <- c(1:length(boyce.analysis$F.ratio))[boyce.analysis$F.ratio != 
-                                               c(boyce.analysis$F.ratio[-1], FALSE)]
-    plot(boyce.analysis$HS, boyce.analysis$F.ratio, xlab = "Habitat suitability", 
-         ylab = "Predicted/Expected ratio", col = "grey", cex = 0.75, 
-         main= paste('Boyce analysis', 'Spearman cor:', boyce.analysis$Spearman.cor))
-    points(boyce.analysis$HS[r], boyce.analysis$F.ratio[r], pch = 19, cex = 0.75)
-    dev.off()
-    
-    # tables -----------------------------------------------------------------
-    results_out <- data.frame(variables = dimnames(mod_sp@results)[[1]], 
-                              result = unname(mod_sp@results))
-    write_csv(results_out, paste0(subdirs[2], '/contri_permu_', basename, '.csv'))
-    lambdas_out <- do.call(rbind, as.list(mod_sp@lambdas))
-    write.table(lambdas_out, 
-                paste0(subdirs[2], '/lambdas_', basename, '.txt'), 
-                sep='\t', row.names = F, col.names = F)
-    
-    values_out <- data.frame(
-      pres_abs = c(rep(1, NROW(mod_sp@presence)), rep(0, NROW(mod_sp@absence))),
-      rbind(mod_sp@presence, mod_sp@absence)
-    )
-    
-    fit_values <- data.frame(
-      fullmod.AUC = e3@auc,
-      avg.test.AUC = mean(AUC.TEST), 
-      avg.diff.AUC = mean(AUC.DIFF), 
-      avg.test.maxSSS = mean(maxSSS), 
-      maxSSS = SSS,
-      avg.test.no_omission = mean(no_omi), 
-      no_omi = NO,
-      cv = settings$cv[i], 
-      groups = nk
-    )
-    
-    write_csv(fit_values, paste0(subdirs[2], '/fit_metrics_', basename, '.csv'))
-    write_csv(values_out, paste0(subdirs[2], '/values_presence_absence_', basename, '.csv'))
-    file.copy(mod_sp@html, paste0(subdirs[4], '/model_page_', basename, '.html'))
-  }
+  # for(i in 1:NROW(tbl_sp)){
+  foreach(i=1:NROW(tbl_sp),
+          .packages = c('sf', 'tidyverse', 'terra', 'ENMeval', 'raster')) %dopar% {
+            # i=1
+            
+            bg.sp <- bg.points[[ tbl_sp$aream[i] ]][[ sp ]]
+            colnames(bg.sp) <- colnames(occ.sp) <- c('x', 'y')
+            
+            aream <- masks[[ tbl_sp$aream[i] ]][[ sp ]]
+            
+            basename <- paste(tbl_sp$aream[i], tbl_sp$case[i], 
+                              tbl_sp$fc[i], tbl_sp$rm[i], tbl_sp$cv[i], sep='_',
+                              collapse = '')
+            if(length(list.files(paste0('output/models/',sp), pattern = basename, recursive = T)) ==12){
+              return(NULL)
+            } else {
+              
+              if(tbl_sp$case[i] == 'uncorr'){ 
+                vars.case <- cases$uncorr[[ tolower(tbl_sp$aream[i] ) ]][[ sp ]]
+              } else { 
+                vars.case <- cases[[ tbl_sp$case[i] ]]
+              }
+              
+              preds <- mask(crop(envsPredics[[ vars.case ]], aream), vect(aream))
+              
+              model <- myenm_eval(
+                occs = occ.sp, 
+                envs = raster:::stack(preds), 
+                bg = bg.sp, 
+                tune.args = list(fc=tbl_sp$fc[i], rm = tbl_sp$rm[i]), 
+                partitions = tbl_sp$cv[i], algorithm = 'maxent.jar', 
+                doClamp = TRUE,
+                taxon.name = sp, calcular.naMismatch = FALSE)
+              
+              
+              
+              # variable responses and contribution ------------------------------------------------
+              png(paste0(subdirs[1], '/', basename, 'variable_response.png'), width = 20, 
+                  height = 18,units = 'cm', res = 150)
+              dismo::response(eval.models(model)[[1]])
+              title(basename)
+              dev.off()
+              
+              png(paste0(subdirs[1], '/', basename, 'variable_contribution.png'), width = 20, 
+                  height = 18,units = 'cm', res = 150)
+              plot(model@models[[1]])
+              dev.off()
+              
+              # boyce ------------------------------------------------------------------
+              boyce <- ENMeval:::boyce.cm(fit = model@predictions[[1]], 
+                                          obs = terra::extract(model@predictions[[1]], occ.sp) %>%
+                                            na.omit(), PEplot = F)
+              r <- c(1:length(boyce$F.ratio))[boyce$F.ratio != c(boyce$F.ratio[-1], FALSE)]
+              
+              png(paste0(subdirs[1], '/', basename, 'boyce_index.png'), width = 30, 
+                  height = 18,units = 'cm', res = 150)
+              plot(boyce$HS, boyce$F.ratio, xlab = "Habitat suitability", 
+                   ylab = "Predicted/Expected ratio", col = "grey", cex = 0.75, 
+                   main= paste('Boyce analysis', 'Spearman cor:', boyce$Spearman.cor))
+              points(boyce$HS[r], boyce$F.ratio[r], pch = 19, cex = 0.75)
+              dev.off()
+              
+              
+              # Predictions maps -------------------------------------------------------------------
+              writeRaster(model@predictions[[1]], paste0(subdirs[3], '/', basename, '.tif'))
+              
+              ths <- c(
+                'Maximum.training.sensitivity.plus.specificity.Cloglog.threshold', 
+                'X10.percentile.training.presence.Cloglog.threshold'
+              )
+              v <- model@models[[1]]@results
+              names(v) <- dimnames(v)[[1]]
+              
+              png(paste0(subdirs[1], '/',basename, 'thresholded_maps.png'), 
+                  width = 30, height = 18,
+                  units = 'cm', res = 150)
+              par(mfrow=c(1,2))
+              plot(model@predictions[[1]] >= v[ ths[1] ], main=paste('Prediction threholded \n at maxSSS = ', 
+                                                                     round(v[ ths[1]], 3)), legend=F)
+              points(occ.sp, pch='+')
+              plot(model@predictions[[1]] >= v[ ths[2] ], 
+                   main=paste('Prediction threholded \n at X10 percentil training = ', 
+                              round(v[ ths[2] ], 3)), legend=F)
+              points(occ.sp, pch='+')
+              dev.off()
+              
+              # ROC and TPS plot -------------------------------------------------------------------
+              png(paste0(subdirs[1], '/', basename, 'ROC_TPR.png'), width = 30, 
+                  height = 18,units = 'cm', res = 150)
+              par(mfrow=c(1,2))
+              dismo::evaluate(model@models[[1]]@presence, model@models[[1]]@absence, 
+                              model@models[[1]]) %>% plot(., 'ROC')
+              dismo::evaluate(model@models[[1]]@presence, model@models[[1]]@absence, 
+                              model@models[[1]]) %>% plot(., 'TPR')
+              dev.off()
+              
+              # Other plots  -----------------------------------------------------------------------
+              png(paste0(subdirs[1], '/', basename, 'miscellaneus.png'), width = 30, 
+                  height = 18,units = 'cm', res = 150)
+              par(mfrow=c(1,2))
+              dismo::evaluate(model@models[[1]]@presence, model@models[[1]]@absence, 
+                              model@models[[1]]) %>% boxplot(., notch=F)
+              dismo::evaluate(model@models[[1]]@presence, model@models[[1]]@absence, 
+                              model@models[[1]]) %>% density(.)
+              dev.off()
+              
+              
+              # tables -----------------------------------------------------------------
+              results_out <- enframe(model@models[[1]]@results) %>% as.data.frame()
+              colnames(results_out) <- c('variable', 'value')
+              
+              write.csv(results_out, paste0(subdirs[2], '/', basename, '_contri_permu.csv'), 
+                        row.names = F)
+              
+              lambdas_out <- rmaxent::parse_lambdas(model@models[[1]])
+              
+              saveRDS(lambdas_out,paste0(subdirs[2], '/', basename, '_lambdas.RDS'))
+              
+              values_out <- data.frame(
+                pres_abs = c(rep(1, NROW(model@models[[1]]@presence)), 
+                             rep(0, NROW(model@models[[1]]@absence))),
+                rbind(model@models[[1]]@presence, model@models[[1]]@absence)
+              )
+              
+              write_csv(values_out, paste0(subdirs[2], '/', basename, '_values_presence_absence.csv'))
+              write_csv(model@results, paste0(subdirs[2], '/', basename, '_fit_metrics.csv'))
+              saveRDS(model@models[[1]], paste0(subdirs[4], '/', basename, '_model.RDS'))
+              rm(model)
+            }
+          }
+  tmpFiles(FALSE, TRUE, TRUE, TRUE)
+  gc()
 }
-
-  #### SUBOPTIMAL MODELS ####
-#Load suboptimal model table
-table_models <- read.csv('output/models/final_subopt_models/Choosen_models_marmosini_m1&m2.csv')  
-
-#Shut on or off the parrallel processing by commenting or uncommenting the first
-#line of the code
-
-# for (sp in unique(table_models$species)){
-  foreach(sp=unique(table_models$species)) %dopar% {
-  flag <- list.files(paste0('output/models/final_subopt_models/', sp), recursive = T)
-  if(length(flag) == 24){
-    message(sp, ' está completo. Pasando a siguiente especie')
-    next
-  }
-  tbl_sp <- subset(table_models, species == sp)
-  
-  m1mask <- data.frame(pol='pol')
-  st_geometry(m1mask) <- M1bgmask[[sp]]
-  m2mask <- data.frame(pol='pol')
-  st_geometry(m2mask) <- M2bgmask[[sp]]
-
-  masks <- list(M1 = m1mask, M2=m2mask)
-  bg.points <- list(M1 = M1bgxy, M2= M2bgxy)
-  
-  # extract settings ---------------------------------------------------------
-  settings <- list(
-    sp = sp,
-    case = tbl_sp$case,
-    fea = tbl_sp$features,
-    rm = tbl_sp$rm,
-    area = tbl_sp$area,
-    cv = tbl_sp$cross.validation, 
-    auc = tbl_sp$train.AUC
-  )
-  
-  dir.sp <- paste0('output/models/final_subopt_models/', sp)
-  dir.create(dir.sp)
-  
-  # loop for area M ----------------------------------------------------------
-  for(i in 1:NROW(tbl_sp)){
-    occ.sp <- OCCS[[ sp ]]
-    
-    fold <- getPartitions(occ.sp, bg.points[[ settings$area[i] ]][[sp]], settings$cv[i])
-    
-    nk <- length(unique(fold$occ.grp))
-    
-    occtest <- occ.sp[ fold$occ.grp == 1 , ]
-    occtrain <- occ.sp[ fold$occ.grp != 1 , ]
-    
-    p <- c(rep(1, NROW(occ.sp)), rep(0, NROW(bg.points[[ settings$area[i] ]][[sp]])))
-    
-    # get data -----------------------------------------------------------------------------------------
-    if(settings$case[i] != 'uncorr'){
-      
-      data <- as.data.frame(
-        rbind(extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                      occ.sp[,c('longitude', 'latitude')])[,-1],
-              extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                      bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1])
-      )
-      
-      pres.data <- extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                           occ.sp[,c('longitude', 'latitude')])[,-1]
-      bg.data <- extract(predictors[[ cases[[ settings$case[i] ]]  ]], 
-                         bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1]
-      
-      case.vars <- cases[[ settings$case[i] ]] 
-    } else {
-      
-      data <- as.data.frame(
-        rbind(
-          extract(
-            predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]]  ]],
-            occ.sp[,c('longitude', 'latitude')])[,-1],
-          extract(
-            predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]] ]],
-            bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1])
-      )
-      
-      pres.data <- extract(
-        predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]]  ]],
-        occ.sp[,c('longitude', 'latitude')])[,-1]
-      bg.data <- extract(
-        predictors[[ cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]] ]],
-        bg.points[[ settings$area[i] ]][[sp]][,c('x', 'y')])[,-1]
-      
-      case.vars <- cases[[ settings$case[i] ]][[ tolower(settings$area[i]) ]][[sp]]
-    }
-    
-    AUC.TEST <- double()
-    AUC.DIFF <- double()
-    maxSSS <- double()
-    no_omi <- double()
-    for(j in 1:nk){
-      train.val <- pres.data[fold$occ.grp != j, , drop = FALSE]
-      test.val <- pres.data[fold$occ.grp == j, , drop = FALSE]
-      bg.val <- bg.data[fold$bg.grp != j, , drop = FALSE]
-      x <- as.data.frame(rbind(train.val, bg.val))
-      p.fit <- c(rep(1, nrow(train.val)), rep(0, nrow(bg.val)))
-
-      mod <- maxent(x=x, p=p.fit, args = c('autofeature=false',
-                                           paste0('betamultiplier', '=', settings$rm[i]), 
-                                           getFeaturesArgs(settings$fea[i])))
-      
-      AUC.TEST[j] <- dismo::evaluate(test.val, bg.data, mod)@auc
-      AUC.DIFF[j] <- max(0, dismo::evaluate(train.val, bg.data, 
-                                            mod)@auc - AUC.TEST[j])
-      
-      testp <- dismo::predict(mod, data.frame(test.val))
-      testa <- dismo::predict(mod, data.frame(bg.data))
-      
-      e <- evaluate(p=testp, a=testa)
-      
-      tab <- base::cbind(e@t, e@TPR + e@TNR)
-      maxSSS[j] <- (base::subset(tab, tab[, 2] == max(tab[, 2])))[1, 1]
-      no_omi[j] <- as.numeric(threshold(e)[3])
-    }
-    
-    pdat <- cbind(p, data)
-    
-    data <- as.data.frame(na.omit(pdat)[,-1])
-    p <- as.data.frame(na.omit(pdat)[,1])
-    
-    # make model -------------------------------------------------------------
-    mod_sp <- maxent(x=data, p=p, removeDuplicates=T, 
-                     args=c('autofeature=false',
-                            paste0('betamultiplier', '=', settings$rm[i]), 
-                            getFeaturesArgs(settings$fea[i])
-                     )
-    )
-    
-    r <- dismo::predict(mod_sp, stack(mask(crop(predictors[[ case.vars  ]],
-                                                vect(as(masks[[ settings$area[i] ]], 'Spatial'))), 
-                                           vect(as(masks[[ settings$area[i] ]], 'Spatial')))), 
-                        args=c("outputformat=cloglog", 'threads=4'))
-    # evaluate ---------------------------------------------------------------
-    e3 <- evaluate(p=data[p == 1,], 
-                   a=data[p == 0,], 
-                   mod_sp)
-    
-    tab <- base::cbind(e3@t, e3@TPR + e3@TNR)
-    SSS <- (base::subset(tab, tab[, 2] == max(tab[, 2])))[1, 1]
-    NO <- as.numeric(threshold(e3)[3])
-    
-    # boyce ------------------------------------------------------------------
-    boyce.fit <- r
-    boyce.obs <- extract(r, occ.sp[c('longitude', 'latitude')])
-    boyce.analysis <- ecospat::ecospat.boyce(boyce.fit, boyce.obs, PEplot = F)
-    
-    # write info ----------------------------------------------------------------------------------------------------------------
-    subdirs <- paste0(dir.sp, '/', c('plots', 'tables', 'rasters', 'models'))
-    walk(subdirs, dir.create)
-    
-    basename <- paste(settings$area[i], settings$case[i], 
-                      settings$fea[i], settings$rm[i], settings$cv[i],sep='_',
-                      collapse = '')
-    
-    writeRaster(r, paste0(subdirs[3], '/', basename, '.tif'))
-    
-    png(paste0(subdirs[1], '/', 'thresholded_maps_', basename, '.png'), 
-        width = 30, height = 18,
-        units = 'cm', res = 150)
-    par(mfrow=c(1,2))
-    plot(r >= SSS, main=paste('Prediction threholded \n at maxSSS = ', 
-                              round(SSS,3)), legend=F)
-    points(occ.sp[,2:3], pch='+')
-    plot(r > as.numeric(threshold(e3)[3]), main=paste('Prediction threholded \n at no_omission = ', 
-                                                      round(as.numeric(threshold(e3)[3]), 3)), legend=F)
-    points(occ.sp[,2:3], pch='+')
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'variable_response_', basename, '.png'), width = 20, 
-        height = 18,units = 'cm', res = 150)
-    response(mod_sp)
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'variable_contribution_', basename, '.png'), width = 20, 
-        height = 18,units = 'cm', res = 150)
-    plot(mod_sp)
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'ROC_TPR_', basename, '.png'), width = 30, 
-        height = 18,units = 'cm', res = 150)
-    par(mfrow=c(1,2))
-    plot(e3, 'ROC')
-    plot(e3, 'TPR')
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'miscellaneus_', basename, '.png'), width = 30, 
-        height = 18,units = 'cm', res = 150)
-    par(mfrow=c(1,2))
-    boxplot(e3, notch=F)
-    density(e3)
-    dev.off()
-    
-    png(paste0(subdirs[1], '/', 'boyce_', basename, '.png'), width = 30, 
-        height = 18,units = 'cm', res = 150)
-    r <- c(1:length(boyce.analysis$F.ratio))[boyce.analysis$F.ratio != 
-                                               c(boyce.analysis$F.ratio[-1], FALSE)]
-    plot(boyce.analysis$HS, boyce.analysis$F.ratio, xlab = "Habitat suitability", 
-         ylab = "Predicted/Expected ratio", col = "grey", cex = 0.75, 
-         main= paste('Boyce analysis', 'Spearman cor:', boyce.analysis$Spearman.cor))
-    points(boyce.analysis$HS[r], boyce.analysis$F.ratio[r], pch = 19, cex = 0.75)
-    dev.off()
-    
-    # tables -----------------------------------------------------------------
-    results_out <- data.frame(variables = dimnames(mod_sp@results)[[1]], 
-                              result = unname(mod_sp@results))
-    write_csv(results_out, paste0(subdirs[2], '/contri_permu_', basename, '.csv'))
-    lambdas_out <- do.call(rbind, as.list(mod_sp@lambdas))
-    write.table(lambdas_out, 
-                paste0(subdirs[2], '/lambdas_', basename, '.txt'), 
-                sep='\t', row.names = F, col.names = F)
-    
-    values_out <- data.frame(
-      pres_abs = c(rep(1, NROW(mod_sp@presence)), rep(0, NROW(mod_sp@absence))),
-      rbind(mod_sp@presence, mod_sp@absence)
-    )
-    
-    fit_values <- data.frame(
-      fullmod.AUC = e3@auc,
-      avg.test.AUC = mean(AUC.TEST), 
-      avg.diff.AUC = mean(AUC.DIFF), 
-      avg.test.maxSSS = mean(maxSSS), 
-      maxSSS = SSS,
-      avg.test.no_omission = mean(no_omi), 
-      no_omi = NO,
-      cv = settings$cv[i], 
-      groups = nk
-    )
-    
-    write_csv(fit_values, paste0(subdirs[2], '/fit_metrics_', basename, '.csv'))
-    write_csv(values_out, paste0(subdirs[2], '/values_presence_absence_', basename, '.csv'))
-    file.copy(mod_sp@html, paste0(subdirs[4], '/model_page_', basename, '.html'))
-  }
-}
-

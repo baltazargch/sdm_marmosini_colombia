@@ -1,8 +1,7 @@
-library(here)
-library(sf)
-library(tidyverse)
-library(ggsci)
 library(raster)
+library(tidyverse)
+library(sf)
+library(ggsci)
 library(ggpubr)
 
 #### GENERAL RESULTS ####
@@ -20,7 +19,7 @@ for(i in files){
 
 df$comment[df$comment == ""] <- NA
 
-write.csv(df, 'output/Marmosini_Colombia_appendix_I.csv', na='', row.names = F)
+write.csv(df, 'results/Marmosini_Colombia_appendix_I.csv', na='', row.names = F)
 
 # Make Appendix I - Sheet 2
 
@@ -87,21 +86,25 @@ dt_final[order(dt_final$Species),] #Copied and pasted manually into excel sheet
 #------------------------------///------------------------------#
 
 ##### Other results ####
-OCCS <- read.csv('output/Marmosini_Colombia_appendix_I.csv')
+OCCS <- read.csv('results/Marmosini_Colombia_appendix_I.csv')
 
 # Records per species
 OCCS %>% 
   count(species) %>% arrange(n)
 
 # Models chosen generalities
-CHOS <- read.csv('output/models/final_models/Choosen_models_marmosini_m1&m2.csv')
-CHOS1 <- read.csv('output/models/final_subopt_models/Choosen_models_marmosini_m1&m2.csv')
+CHOS <- rbind(
+  read.csv('output/fitting/Choosen_models_marmosini_m1&m2.csv'), 
+  read.csv('output/fitting/Subopt_models_marmosini_m1&m2.csv')[,-26] 
+)
 
-CHOS <- rbind(CHOS, CHOS1)
-
+final_opts <- read.csv('output/final_chosen_models.csv')
+final_opts$final.model
 CHOS %>% 
+  mutate(id = str_c(aream, case, fc, rm, cv, sep = '_')) %>% 
+  filter(id  %in% final_opts$final.model) %>% 
   group_by(species) %>% 
-  summary(avg.test.AUC)
+  summarise(auc.train)
 
 # Records per country
 wmap <- read_sf('wmap/ne_10m_admin_0_countries.shp')
@@ -115,37 +118,40 @@ st_crs(pp) <- 4326
 pp_col <- st_intersection(pp, wmap)
 
 pp_col %>% group_by(species) %>% 
-  select(species, NAME) %>% 
+  dplyr::select(species, NAME) %>% 
   mutate(In_COL = NAME == 'Colombia') %>% 
   filter(all(In_COL == F)) %>% 
   count()
 
 pp_col %>% as.data.frame() %>% 
-  select(NAME) %>% 
+  dplyr::select(NAME) %>% 
   count(NAME)
 
 # Number of different references in Appendix I - Sheet 1
 pp_col %>% as.data.frame() %>% 
-  select(full.reference) %>% distinct() %>% View()
+  dplyr::select(full.reference) %>% distinct() %>% nrow()#%>% View()
 
 #### EVALUATION METRICS ####
-all_results <- read.csv('output/models/marmosini_fitting_results.csv')
+all_results <- read.csv('output/fitting/marmosini_fitting_results.csv')
 
-all_results %>% group_by(species) %>% count(case) #%>% View()
+all_results %>% group_by(species) %>% count(case) %>% 
+  ungroup() %>% summarise(range = range(n))
 
 results <- all_results %>% 
-  mutate(method = str_c(area, '_', cross.validation, '_', case)) %>% 
+  mutate(method = str_c(aream, '_', cv, '_', case)) %>% 
   mutate(rm = factor(as.character(rm), levels = unique(as.character(rm)))) %>% 
   group_by(case) %>% 
-  filter(avg.test.AUC >= quantile(avg.test.AUC)[4])
+  filter(auc.val.avg >= quantile(auc.val.avg)[4])
 
 dir.create(dir.save <- 'results/Fig2', recursive = T)
 
 ##### Fig 2 plots #####
+linew <- 0.7
+smalltext <- 8
 results %>% 
-  ggplot(aes(x=rm, y=train.AUC, colour=case, group=case))+
+  ggplot(aes(x=rm, y=auc.train, colour=case, group=case))+
   ggsci::scale_color_aaas(alpha = 0.7)+
-  geom_smooth(aes(linetype=case),method = NULL, se=T, show.legend = T) +
+  geom_smooth(aes(linetype=case), lwd=linew,method = NULL, se=T, show.legend = T) +
   scale_linetype_manual(values = c('dotted', 'twodash', 'solid', 'dotdash'))+
   theme_light() +
   xlab('regularization multiplier') +
@@ -157,16 +163,16 @@ results %>%
     axis.title.x = element_text(size=16, family = 'sans'), 
     axis.title.y = element_text(size=16, family = 'sans'), 
     panel.grid = element_blank(),
-  ) 
+  ) -> fig2a
 
-ggsave(paste0(dir.save, '/trainAUC.png' ), dpi = 300, 
+ggsave(plot = fig2a, paste0(dir.save, '/trainAUC.png' ), dpi = 300, 
        width = 70.27 *3, height = 48.77 * 3,
        units = 'mm')
 
 results %>% 
-  ggplot(aes(x=rm, y=avg.test.AUC, color=case, group=case))+
+  ggplot(aes(x=rm, y=auc.val.avg, color=case, group=case))+
   ggsci::scale_color_aaas(alpha = 0.7)+
-  geom_smooth(aes(linetype=case),method = NULL, se=T, show.legend = T) +
+  geom_smooth(aes(linetype=case), lwd=linew,method = NULL, se=T, show.legend = T) +
   scale_linetype_manual(values = c('dotted', 'twodash', 'solid', 'dotdash'))+
   theme_light() +
   xlab('regularization multiplier') +
@@ -178,15 +184,17 @@ results %>%
     axis.title.x = element_text(size=16, family = 'sans'), 
     axis.title.y = element_text(size=16, family = 'sans'), 
     panel.grid = element_blank(),
-  ) 
-ggsave(paste0(dir.save, '/testAUC.png' ), dpi = 300, 
+  ) -> fig2b
+
+ggsave(plot = fig2b, 
+       paste0(dir.save, '/testAUC.png' ), dpi = 300, 
        width = 70.27 *3, height = 48.77 * 3,
        units = 'mm')
 
 results %>% 
-  ggplot(aes(x=rm, y=avg.test.orMTP, color=case, group=case))+
+  ggplot(aes(x=rm, y=or.mtp.avg, color=case, group=case))+
   ggsci::scale_color_aaas(alpha = 0.7)+
-  geom_smooth(aes(linetype=case),method = NULL, se=T, show.legend = T) +
+  geom_smooth(aes(linetype=case), lwd=linew,method = NULL, se=T, show.legend = T) +
   scale_linetype_manual(values = c('dotted', 'twodash', 'solid', 'dotdash'))+
   theme_light() +
   xlab('regularization multiplier') +
@@ -198,15 +206,16 @@ results %>%
     axis.title.x = element_text(size=16, family = 'sans'), 
     axis.title.y = element_text(size=16, family = 'sans'), 
     panel.grid = element_blank(),
-  ) 
-ggsave(paste0(dir.save, '/testorMTP.png' ), dpi = 300, 
+  ) -> fig2c
+ggsave(plot = fig2c, 
+       paste0(dir.save, '/testorMTP.png' ), dpi = 300, 
        width = 70.27 *3, height = 48.77 * 3,
        units = 'mm')
 
 results %>% 
   ggplot(aes(x=rm, y=AICc, color=case, group=case))+
   ggsci::scale_color_aaas(alpha = 0.7)+
-  geom_smooth(aes(linetype=case),method = NULL, se=T, show.legend = T) +
+  geom_smooth(aes(linetype=case), lwd=linew, method = NULL, se=T, show.legend = T) +
   scale_linetype_manual(values = c('dotted', 'twodash', 'solid', 'dotdash'))+
   theme_light() +
   xlab('regularization multiplier') +
@@ -218,87 +227,84 @@ results %>%
     axis.title.x = element_text(size=16, family = 'sans'), 
     axis.title.y = element_text(size=16, family = 'sans'), 
     panel.grid = element_blank(),
-  ) 
-ggsave(paste0(dir.save, '/AICc.png' ), dpi = 300, 
+  ) -> fig2d
+
+ggsave(plot = fig2d, 
+       paste0(dir.save, '/AICc.png' ), dpi = 300, 
        width = 70.27 *3, height = 48.77 * 3,
        units = 'mm')
+
+library(patchwork)
+
+(fig2a + xlab('')) + (fig2b + xlab('')) + fig2c + fig2d + 
+  plot_annotation(tag_levels = 'a') +
+  plot_layout(guides = 'collect') &
+  theme(
+    plot.tag = element_text(size = 16, family = 'sans'),
+    legend.position = 'bottom', 
+    axis.text.x = element_text(size=smalltext, family = 'sans'),
+    axis.text.y = element_text(size=smalltext, family = 'sans'),
+    axis.title.x = element_text(size=smalltext, family = 'sans'), 
+    axis.title.y = element_text(size=smalltext, family = 'sans'), 
+    text = element_text(colour='gray30'), 
+    plot.margin = unit(c(0,0.4,0,0.9), 'mm')
+    )
+
+ggsave(paste0(dir.save, '/fig2.png' ), dpi = 300, 
+       width = 200, height = 135,
+       units = 'mm', limitsize = F)
 
 ##### Other results #####
 # Count predictors scenarios frequencies overall
 all_results %>% 
   count(case, species)
 
-optimal <- read.csv('output/models/final_models/Choosen_models_marmosini_m1&m2.csv')
-optimal <- optimal %>% mutate(model = 'o')
-
-subopti <- read.csv('output/models/final_subopt_models/Choosen_models_marmosini_m1&m2.csv')
-subopti <- subopti %>% mutate(model= 's')
-
-tbl_final <- rbind(optimal, subopti)
-
-OCCS <- lapply(list.files('records', pattern = '.csv$', full.names = T), read.csv)
-names(OCCS) <- gsub(".csv", "", list.files('records', pattern = '.csv$', full.names = F))
-
-goodmodels <- data.frame(
-  species = names(OCCS), 
-  area = c('M2', 'M2', 'M1', 'M2', 'M2',
-           'M2', 'M2', 'M2', 'M2', 'M2', 
-           'M2', 'M2', 'M2', 'M1', 'M2', 
-           'M2'), 
-  model = c('o', 's', 's', 'o', 'o', 
-            'o', 'o', 'o', 'o', 's', 
-            'o', 's', 's', 'o', 'o', 
-            'o')
-)
-
-for(i in 1:NROW(goodmodels)){
-  cc <- tbl_final[ tbl_final$species == goodmodels$species[i], ]
-  cc <- cc %>% filter(area == goodmodels$area[i] & model == goodmodels$model[i])
-  
-  goodmodels[ i , colnames(cc)[ -c(1, 3, 22, 23) ]] <- cc[ ,-c(1, 3, 22, 23) ]
-}
+tbl_final <- CHOS
+goodmodels <- tbl_final %>% 
+  mutate(id = str_c(aream, case, fc, rm, cv, sep = '_')) %>% 
+  filter(id  %in% final_opts$final.model)
 
 # Count predictors scenarios frequencies models chosen
 goodmodels %>% count(case) %>% arrange(n)
 
 # Count cross-validation frecuencies models chosen
-goodmodels %>% count(cross.validation)
+goodmodels %>% count(cv)
 
 # Range of training AUC
-range(goodmodels$train.AUC)
+goodmodels$rm %>% sort()
+range(goodmodels$auc.train)
 
 #Write results
-write.csv(goodmodels, 'output/final_models_chosen.csv', row.names = F)
+write.csv(goodmodels, 'output/final_models_chosen_R.csv', row.names = F)
 
 
 #### PREDICTORS IMPORTANCE IN MODELS ####
-tbl_final <- read.csv('output/final_models_chosen.csv')
+tbl_final <- read.csv('output/final_models_chosen_R.csv')
 
 #Prepare data.frames to fill with data
 dt_conper <- data.frame(species=NULL)
 dt_toplot <- dt_conper
 
+all_files <- list.files('output/models/', recursive = T, full.names = T)
+all_files <- all_files[ str_detect(all_files, 'contri_permu')] %>% 
+  .[str_detect(., 'tables')] %>% 
+  .[str_detect(., paste0(
+    paste0(final_opts$Species,'/tables/', final_opts$final.model), collapse = '|'))]
+
 #Extract the data for each species from optimal or supoptimal directory
-for(i in 1:NROW(tbl_final)){
-  sp <- tbl_final[ i , ]
-  
-  dir <- ifelse(sp$model == 'o', 
-                paste0('output/models/final_models/', sp$species, 
-                       '/tables/'), 
-                paste0('output/models/final_subopt_models/', sp$species, 
-                       '/tables/'))
-  
-  file.chose <- list.files(dir, pattern = paste0('contri_permu_', sp$area), full.names = T)
-  
-  contri <- read.csv(file.chose)
-  rows.keep <- grep('contribution|permutation' ,contri$variables)
+for(i in seq_along(all_files)){
+  # i=1
+  sp <- str_remove(all_files[i], 'output/models//') %>% 
+    str_remove(., '/tables.*')
+  contri <- read.csv(all_files[i])
+  rows.keep <- grep('contribution|permutation' ,contri$variable)
   
   filtered <- contri[rows.keep,]
-  filtered$species <- sp$species
+  filtered$species <- sp
   filtered <- filtered[ , c(3,1,2)]
   
   dt_toplot <- plyr::rbind.fill(dt_toplot, filtered)
-  tfilt <- filtered[, 3] %>% t() %>%  cbind(sp$species, .) 
+  tfilt <- filtered[, 3] %>% t() %>%  cbind(sp, .) 
   
   colnames(tfilt) <- c('species', filtered[ , 2])
   tfilt <- as.data.frame(tfilt)
@@ -319,26 +325,27 @@ colnames(cont)[sort(col.max)]
 
 ##### Fig 3 plot #####
 dir.create('results/Fig3/')
+
+cols1 <- hcl.colors(6, 'Teal')
+cols2 <- hcl.colors(5,'Burg')[-c(1,5)]
+
 gg.impt <- dt_toplot %>% 
-  mutate(type = ifelse(stringr::str_detect(variables, 'contribution'), 
+  mutate(type = ifelse(stringr::str_detect(variable, 'contribution'), 
                        'contribution', 'permutation')) %>% 
   mutate(species = gsub('_', ' ', species)) %>% 
-  mutate(species = as.factor(species)) %>% 
-  mutate(variables = stringr::str_replace(variables, '.permutation.importance|.contribution', '')) %>% 
-  arrange(result) %>% 
-  mutate(variables = factor(variables, levels = c(paste0('bio_', c(4,6,10,11,15,16,17)), 
+  mutate(species = as.factor(species), result= value) %>% 
+  mutate(variable = stringr::str_replace(variable, '.permutation.importance|.contribution', '')) %>% 
+  arrange(result) %>% #distinct(variable) %>% 
+  mutate(variable = factor(variable, levels = c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 
                                                   'topoWet','tri', 'msavi'))) %>% 
-  ggplot(aes(y=result, fill=variables, x=species), shape='black')+
+  ggplot(aes(y=result, fill=variable, x=species), shape='black')+
   scale_fill_manual(name='Variables',
-                    labels=c(paste0('bio_', c(4,6,10,11,15,16,17)), 
+                    labels=c(paste0('bio_', c(2,4,6,10,11,15,16,17)), 
                              'topoWet', 'tri', 'msavi'),
-                    values = c(
-                      RColorBrewer::brewer.pal(n = 9, name = "OrRd")[c(7,6,5,4)], 
-                      RColorBrewer::brewer.pal(n = 9, name = "Blues")[4:7], 
-                      'hotpink', 'forest green'
-                    ))+
+                    values = c(hcl.colors(7, 'Oranges')[-c(1,2)], hcl.colors(4,'Teal'), 
+                               'gray30','greenyellow'))+
   scale_x_discrete(limits = rev)+
-  geom_bar(stat = 'identity', na.rm = F) +
+  geom_bar(stat = 'identity', na.rm = F, alpha=0.73) +
   facet_wrap(~type)+
   ylab('%')+ xlab('')+
   theme_light()+
@@ -347,14 +354,27 @@ gg.impt <- dt_toplot %>%
     axis.text.y = element_text(face = 'italic')
   )+
   coord_flip()
-
+gg.impt
 #Write plot and table
-ggsave(gg.impt, 'results/Fig3/fig3.tiff', dpi=300, units = 'cm')
-write.csv(dt_conper, 'output/contribution_permutation_marmosini.csv', row.names = F)
+ggsave(plot = gg.impt, 'results/Fig3/fig3.tiff', dpi=300, units = 'cm')
+
+map(c('contribution', 'permutation'), ~dt_toplot %>% 
+  mutate(type = ifelse(stringr::str_detect(variable, 'contribution'), 
+                       'contribution', 'permutation')) %>% 
+  mutate(variable = stringr::str_replace(variable, 
+                                         '.permutation.importance|.contribution', '')) %>% 
+  filter(type==.x) %>% 
+  select(species, variable, value) %>% 
+  pivot_wider(
+    id_cols=species, names_from = variable, values_from = value
+  ) %>% 
+  select(species, c(paste0('bio_', c(2,4,6,10,11,15,16,17)),'topoWet', 'tri', 'msavi')) %>% 
+  write_csv(., paste0('results/', .x, '_variables.csv'))
+)
 
 #### CONSERVATION AND PRESSURE ####
-dt_con <- read.csv('output/species_overlap_pressure_conservation.csv')
-
+dt_con <- read.csv('results/species_overlap_pressure_conservation.csv')
+# sum(dt_con$total_area) 
 ##### Conservation generalities #### 
 dt_con %>% 
   group_by(species) %>% 
@@ -371,17 +391,20 @@ dt_con %>%
   group_by(species) %>% 
   mutate(percent_pressure_high = (high_pressure / total_area) * 100) %>% 
   mutate(percent_pressure_low = (low_pressure / total_area) * 100) %>% 
-  mutate(percent_pressure_nd = (no_data_by_mask / total_area) * 100) %>% 
+  mutate(percent_pressure_nd = (no_data_by_mask / total_area) * 100, 
+         total=sum(percent_pressure_high, percent_pressure_low)) %>% 
   select(species, percent_pressure_high, percent_pressure_low, 
-         percent_pressure_nd) %>% 
-  arrange(percent_pressure_nd)
+         percent_pressure_nd, total) %>% 
+  arrange(percent_pressure_nd) #%>% 
+  # ungroup() %>%
+  # summarise(med = median(percent_pressure_low))
 
 ##### Type of conservation #### 
   ###### IUCN #####
 dt_con %>% 
   mutate(percent_strict  = (strict.conservation_total_area / total_area) * 100) %>% 
   mutate(percent_managed = (managed.resources_total_area / total_area) * 100) %>% 
-  select(species, percent_strict, percent_managed) %>% 
+  select(species, percent_strict, percent_managed) %>% #arrange(percent_managed) 
   summarise(strict_med = median(percent_strict, na.rm=T), 
             managed_med = median(percent_managed, na.rm=T))
 
@@ -396,7 +419,7 @@ dt_con %>%
             private_med = median(percent_private, na.rm=T))
 
 ##### Conservation pressure ####
-dt_con %>% 
+dt_con %>%
   group_by(species) %>% 
   mutate(
     percent_high_strict = 
@@ -409,20 +432,22 @@ dt_con %>%
       (sub.national_high_pres_area / sub.national_total_area) * 100,
     percent_high_private = 
       (private_high_pres_area/ private_total_area) * 100
-  ) %>% #ungroup() %>%
+  ) %>% ungroup() %>%
   select(contains('percent')) %>%  ungroup() %>%
-  apply(., 2, function(i) {median(i, na.rm = T)})
+  apply(., 2, function(i) { round(median(i, na.rm = T), 2)})
 
-##### Table 2 ####
+dir.create('results/tables', recursive = T)
+##### Table 1 ####
 dt_con %>% 
   mutate('Range area' = round(total_area, 2),
          Strict  = round(strict.conservation_total_area, 2), 
          Managed = round(managed.resources_total_area, 2), 
          High    = round(high_pressure, 2), 
          Low     = round(low_pressure, 2)) %>% 
-  select(species, 'Range area', Strict, Managed, High, Low)
+  select(species, 'Range area', Strict, Managed, High, Low) %>% 
+  write_csv(., 'results/tables/table1.csv')
 
-##### Table 3 ####
+##### Table 2 ####
 dt_con %>% 
   mutate(Species      = gsub('_', ' ', species),
          Strict       = round(strict.conservation_total_area / total_area, 4) * 100, 
@@ -430,9 +455,12 @@ dt_con %>%
          National     = round(national_total_area / total_area, 4) * 100, 
          'Sub-national' = round(sub.national_total_area / total_area, 4) * 100,
          Private      = round(private_total_area / total_area, 4) * 100) %>% 
-  select(Species, Strict, Managed, National, 'Sub-national', Private)
+  select(Species, Strict, Managed, National, 'Sub-national', Private) %>% 
+  # arrange(`Sub-national`)
+  write_csv(., 'results/tables/table2.csv')
 
-##### Table 4 ####
+
+##### Table 3 ####
 dt_con %>% 
   mutate(Species      = gsub('_', ' ', species),
          Strict.h       = round(strict.conservation_high_pres_area / strict.conservation_total_area, 4) * 100, 
@@ -452,30 +480,33 @@ dt_con %>%
          National = paste0(National.h, ' [', National.l, ']'), 
          'Sub-national' = paste0(`Sub-national.h`, ' [', `Sub-national.l`, ']'), 
          Private = paste0(Private.h, ' [', Private.l, ']')) %>% 
-  select(Species, Strict, Managed, National, 'Sub-national', Private)
+  select(Species, Strict, Managed, National, 'Sub-national', Private) %>% 
+  write_csv(., 'results/tables/table3.csv')
+
 
 #### RANGES AREAS ####
+sf_use_s2(F)
 wmap <- read_sf('wmap/ne_10m_admin_0_countries.shp')
 COL <- wmap[ wmap$NAME == 'Colombia',]
 
-file.shp <- list.files('output/definitive_rages/', pattern = '.shp', full.names = T)
-nm.shp <- list.files('output/definitive_rages/', pattern = '.shp', full.names = F)
+file.shp <- list.files('output/ranges/definitive/', pattern = '.gpkg$', full.names = T)
+nm.shp <- list.files('output/ranges/definitive/', pattern = '.gpkg$', full.names = F)
 ranges <- lapply(file.shp, read_sf)
-names(ranges) <- gsub('.shp', '', nm.shp)
+names(ranges) <- gsub('.gpkg', '', nm.shp)
 
 ranges <- lapply(seq_along(ranges), function(i) {
-  x <- ranges[[i]]
-  x$species <- names(ranges[i])
+  x <- st_sf(species = names(ranges[i]), 
+             geometry= st_union(ranges[[i]]))
   x[, c('species', 'geometry')]
 })
 
 joint <- st_union(do.call(rbind, ranges))
 
 #Areas of each species (km2)
-sapply(ranges, function(x){
-  paste0(x[1,1], ' ', 
-         st_area(st_union(x)) * 1e-06, 
-         '\n')
+walk(ranges, \(x){
+  cat(paste0(x$species[1], ' ', 
+         round(sum(st_area(x)) * 1e-06, 2), 
+         '\n'))
 })
 
 #Proportion of in-country distribution 
@@ -483,24 +514,25 @@ sapply(ranges, function(x){
 
 #### SUPPLEMENTARY INFORMATION ####
 ###### Fig S2 of supplementary information S2 #####
+all_results <- read.csv('output/fitting/marmosini_fitting_results.csv')
 m.area <- all_results %>% 
-  mutate(method = str_c(area, '_', cross.validation, '_', case)) %>%
-  group_by(area, case, rm, cross.validation) %>% 
-  filter(avg.test.AUC >= quantile(avg.test.AUC)[4]) %>% 
-  mutate(avg_TAUC = mean(train.AUC), 
-         avg_TestAUC = mean(avg.test.AUC), 
-         avg_orMTP = mean(avg.test.orMTP),
+  mutate(method = str_c(aream, '_', cv, '_', case)) %>%
+  group_by(aream, case, rm, cv) %>% 
+  filter(auc.val.avg >= quantile(auc.val.avg)[4]) %>% 
+  mutate(avg_TAUC = mean(auc.train), 
+         avg_TestAUC = mean(auc.val.avg), 
+         avg_orMTP = mean(or.mtp.avg),
          avg_AIC = mean(AICc)) %>% 
   distinct()
 
 dir.create('results/FigS2' -> dir.save)
 
 m.area %>%
-  ggplot(aes(x=rm, shape=cross.validation, y = avg_TAUC, group=method, color=case)) +
+  ggplot(aes(x=rm, shape=cv, y = avg_TAUC, group=method, color=case)) +
   ggsci::scale_color_d3(alpha = 0.8)+
   geom_point(size=2) +
   geom_line()+
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
+  facet_wrap(~aream, ncol=2, strip.position = 'top', scales = 'fixed') +
   theme_light() +
   theme(
     panel.grid = element_blank(),
@@ -518,11 +550,11 @@ ggsave(paste0(dir.save, '/trainAUC.png' ),dpi = 300,
        units = 'mm')
 
 m.area %>% 
-  ggplot(aes(x=rm, shape=cross.validation, y = avg_TestAUC, group=method, color=case)) +
+  ggplot(aes(x=rm, shape=cv, y = avg_TestAUC, group=method, color=case)) +
   ggsci::scale_color_d3(alpha = 0.8)+
   geom_point() + 
   geom_line()+
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
+  facet_wrap(~aream, ncol=2, strip.position = 'top', scales = 'fixed') +
   theme_light() +
   theme(
     panel.grid = element_blank(),
@@ -541,11 +573,11 @@ ggsave(paste0(dir.save, '/testAUC.png' ),dpi = 300,
 
 
 m.area %>% 
-  ggplot(aes(x=rm, shape=cross.validation, y = avg_orMTP, group=method, color=case)) +
+  ggplot(aes(x=rm, shape=cv, y = avg_orMTP, group=method, color=case)) +
   ggsci::scale_color_d3(alpha = 0.8)+
   geom_point() + 
   geom_line()+
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
+  facet_wrap(~aream, ncol=2, strip.position = 'top', scales = 'fixed') +
   theme_light() +
   theme(
     panel.grid = element_blank(),
@@ -563,11 +595,11 @@ ggsave(paste0(dir.save, '/orMTP.png' ),dpi = 300,
        units = 'mm')
 
 m.area %>% 
-  ggplot(aes(x=rm, shape=cross.validation, y = avg_AIC, group=method, color=case)) +
+  ggplot(aes(x=rm, shape=cv, y = avg_AIC, group=method, color=case)) +
   ggsci::scale_color_d3(alpha = 0.8)+
   geom_point() + 
   geom_line()+
-  facet_wrap(~area, ncol=2, strip.position = 'top', scales = 'fixed') +
+  facet_wrap(~aream, ncol=2, strip.position = 'top', scales = 'fixed') +
   theme_light() +
   theme(
     panel.grid = element_blank(),
@@ -585,7 +617,6 @@ ggsave(paste0(dir.save, '/AICc.png' ),dpi = 300,
        units = 'mm')
 
 
-
 ###### Figures of supplementary information S3 #####
 dir.create('results/FigS3' -> dir.save)
 
@@ -594,23 +625,28 @@ names(OCCS) <- gsub(".csv", "", list.files('records', pattern = '.csv$', full.na
 
 wmap <- read_sf('wmap/ne_10m_admin_0_countries.shp')
 COL <- wmap[ wmap$NAME == 'Colombia',]
+COL <- st_cast(COL, 'POLYGON')
+COL$area <- st_area(COL)
+COL <- COL %>% filter(area == max(area))
 
-file.shp <- list.files('output/definitive_rages/', pattern = '.shp', full.names = T)
-nm.shp <- list.files('output/definitive_rages/', pattern = '.shp', full.names = F)
-ranges.def <- lapply(file.shp, read_sf)
-names(ranges.def) <- gsub('.shp', '', nm.shp)
-
-file.shp <- list.files('output/final_shapes/', pattern = '.shp', full.names = T)
-nm.shp <- list.files('output/final_shapes/', pattern = '.shp', full.names = F)
+file.shp <- list.files('output/ranges/original', pattern = '.gpkg$', full.names = T)
+nm.shp <- list.files('output/ranges/original', pattern = '.gpkg$', full.names = F)
 ranges.fin <- lapply(file.shp, read_sf)
-names(ranges.fin) <- gsub('.shp', '', nm.shp)
+names(ranges.fin) <- gsub('.gpkg$', '', nm.shp)
+
+file.shp <- list.files('output/ranges/definitive', pattern = '.gpkg$', full.names = T)
+nm.shp <- list.files('output/ranges/definitive', pattern = '.gpkg$', full.names = F)
+ranges.def <- lapply(file.shp, read_sf)
+names(ranges.def) <- gsub('.gpkg$', '', nm.shp)
 
 stopifnot(all.equal(names(OCCS), names(ranges.def), names(ranges.fin)))
 
 for(i in seq_along(OCCS)){
+  clipped <- st_intersection(ranges.fin[[ names(OCCS[i]) ]], COL)
   ggplot(COL) + 
     geom_sf(aes(fill=CONTINENT), fill='#BCC3CF', colour='#D8E0ED') +
-    geom_sf(data=ranges.fin[[ names(OCCS[i]) ]], aes(fill=SOVEREI),fill='orange', colour=NA, size=0.2) +
+    geom_sf(data=clipped, aes(fill=SOVEREI), 
+            fill='orange', colour=NA, size=0.2) +
     coord_sf() +
     labs(title = "Model's map") +
     theme_light() +
@@ -621,7 +657,8 @@ for(i in seq_along(OCCS)){
   
   ggplot(COL) + 
     geom_sf(aes(fill=CONTINENT), fill='#BCC3CF', colour='#D8E0ED') +
-    geom_sf(data=ranges.def[[ names(OCCS[i]) ]], aes(fill=SOVEREI),fill='forest green', colour=NA, size=0.2) +
+    geom_sf(data=ranges.def[[ names(OCCS[i]) ]], aes(fill=SOVEREI),
+            fill='forest green', colour=NA, size=0.2) +
     coord_sf() +
     labs(title = 'Definitive map') +
     theme_light() +
@@ -631,18 +668,19 @@ for(i in seq_along(OCCS)){
     ) -> def
   
   ggarrange(ori, def) -> gg
-  ggsave(filename = paste0('/results/FigS3/', names(OCCS[i]), '.png'),
-         plot = gg,  dpi = 300
-  )
+  ggsave(filename = paste0('results/FigS3/', names(OCCS[i]), '.png'),
+         plot = gg,  dpi = 300)
 }
 
 #### MAKE DATASET FOR ZENODO ####
+library(sf)
+sf_use_s2(F)
+library(tidyverse)
+dir.shapes <- 'output/ranges/definitive' #these are the manually modified ranges
 
-dir.shapes <- '/output/definitive_rages' #these are the manually modified ranges
-
-files <- lapply(list.files(dir.shapes, pattern = '.shp$', full.names = T), read_sf)
-names <- list.files(dir.shapes, pattern = '.shp$') %>% 
-  gsub('.shp', '', .) %>% 
+files <- lapply(list.files(dir.shapes, pattern = '.gpkg$', full.names = T), read_sf)
+names <- list.files(dir.shapes, pattern = '.gpkg$') %>% 
+  gsub('.gpkg', '', .) %>% 
   gsub('_', ' ', .)
 names(files) <- names
 
@@ -653,14 +691,14 @@ shapes <- lapply(seq_along(files), function(x){
   SHP$species <- names(files[x])
   SHP$author <- 'González et al. 2021'
   SHP$datum <- 'WGS84'
-  SHP$data.link <- 'BIOC-D-21-00385'
-  SHP$data.source <- 'maxent models'
+  SHP$data.link <- 'HYSTRIX-00489-2021'
+  SHP$data.source <- 'MaxEnt v. 3.4.3'
   SHP <-  SHP %>% 
     summarise(species, area.km2 = sum(area.km2), 
-              author, datum, data.source, geometry)
+              author, datum, data.link, data.source, geometry)
   
 })
 
 shapes <- do.call(rbind, shapes)
 
-write_sf(shapes, 'results/marmosini_ranges_Colombia_WGS84_20210526.geojson')
+write_sf(shapes, 'results/marmosini_ranges_Colombia_WGS84_20211214.geojson')
