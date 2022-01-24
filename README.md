@@ -15,7 +15,9 @@
 
 This is the workflow for the paper entitled 'Updated distribution and conservation perspectives of marmosine opossums from Colombia'. It is an **R** workflow with some minor additions and modification from QGIS. This work uses MaxEnt models to delimit the distribution of 16 species of Marmosini (Didelphidae) from Colombia, which include the genera *Marmosa* and *Monodelphis*. The workflow part from data preparation and gathering and ends in a full reproducible scripts of our main results and supporting information. Please see below and read **METHODS** section of our manuscript (pending acceptance) for a detailed explanation of methods and requirements. 
 
-A link to the preprint version of the manuscript can be found at: [here](https://doi.org/10.21203/rs.3.rs-557895/v1)
+First online link from the accepted manuscript in Hystrix, the Italian Journal of Mammalogy at [here](https://doi.org/10.4404/hystrix-00489-2021)
+
+A link to the **old** preprint version of the manuscript can be found at: [here](https://doi.org/10.21203/rs.3.rs-557895/v1)
 
 ---
 
@@ -70,6 +72,6 @@ This workflow will be applied with improvement to all other marsupial species of
 ## How to cite
 Please, when using any part or the whole code give corresponding credits both for us and the packages used. Suggested cite to this recurse:
 
-González, B., Brook, F., and Martin, G. (2021). Distribution and conservation of the species of Marmosini (Didelphimorphia, Didelphidae) from Colombia. PREPRINT (Version 1) available at Research Square [https://doi.org/10.21203/rs.3.rs-557895/v1].
+Gonzalez, B., Brook, F., Martin, G. M. (2022). Updated distribution and conservation perspectives of marmosine opossums from Colombia. Hystrix, the Italian Journal of Mammalogy, 0. https://doi.org/10.4404/hystrix-00489-2021
 
 **PLEASE, FELL FREE TO COMMENT, SHARE AND IMPROVE THIS WORK**
